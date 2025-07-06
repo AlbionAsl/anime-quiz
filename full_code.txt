@@ -1,0 +1,1332 @@
+AppNavigator.tsx<
+
+// src/navigation/AppNavigator.tsx
+
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { useTheme } from 'react-native-paper';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, firestore } from '../utils/firebase';
+
+// Import screens
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import UserCreationScreen from '../screens/UserCreationScreen';
+import HomeScreen from '../screens/HomeScreen'; // You'll need to create this
+
+export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  UserCreation: undefined;
+  Home: undefined;
+};
+
+const Stack = createStackNavigator<RootStackParamList>();
+
+const AppNavigator: React.FC = () => {
+  const theme = useTheme();
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [hasProfile, setHasProfile] = useState(false);
+
+  useEffect(() => {
+    let profileUnsubscribe: (() => void) | null = null;
+
+    const authUnsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        
+        // Clean up previous profile listener
+        if (profileUnsubscribe) {
+          profileUnsubscribe();
+        }
+        
+        // Listen for real-time updates to user profile
+        const userDocRef = doc(firestore, 'users', currentUser.uid);
+        profileUnsubscribe = onSnapshot(
+          userDocRef,
+          (docSnap) => {
+            setHasProfile(docSnap.exists());
+            setLoading(false);
+          },
+          (error) => {
+            console.error('Error listening to user profile:', error);
+            setHasProfile(false);
+            setLoading(false);
+          }
+        );
+      } else {
+        setUser(null);
+        setHasProfile(false);
+        setLoading(false);
+        
+        // Clean up profile listener when user signs out
+        if (profileUnsubscribe) {
+          profileUnsubscribe();
+          profileUnsubscribe = null;
+        }
+      }
+    });
+
+    return () => {
+      authUnsubscribe();
+      if (profileUnsubscribe) {
+        profileUnsubscribe();
+      }
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          cardStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
+        {user ? (
+          hasProfile ? (
+            <Stack.Screen name="Home" component={HomeScreen} />
+          ) : (
+            <Stack.Screen name="UserCreation" component={UserCreationScreen} />
+          )
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
+
+export default AppNavigator;
+
+END OF AppNavigator.tsx>
+
+types.ts<
+
+// src/navigation/types.ts
+
+export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  UserCreation: undefined;
+  Home: undefined;
+};
+
+END OF types.ts>
+
+HomeScreen.tsx<
+
+// src/screens/HomeScreen.tsx
+
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { Button, Text, Surface, useTheme } from 'react-native-paper';
+import { signOut } from 'firebase/auth';
+import { auth } from '../utils/firebase';
+
+type HomeScreenProps = {
+  navigation?: any;
+};
+
+const HomeScreen: React.FC<HomeScreenProps> = () => {
+  const theme = useTheme();
+  const user = auth.currentUser;
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error: any) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+      padding: 24,
+      justifyContent: 'center',
+    },
+    surface: {
+      padding: 24,
+      borderRadius: 16,
+      elevation: 4,
+      alignItems: 'center',
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    subtitle: {
+      fontSize: 16,
+      color: theme.colors.onSurfaceVariant,
+      marginBottom: 24,
+      textAlign: 'center',
+    },
+    email: {
+      fontSize: 14,
+      color: theme.colors.onSurfaceVariant,
+      marginBottom: 32,
+      textAlign: 'center',
+    },
+    signOutButton: {
+      paddingVertical: 8,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+    },
+  });
+
+  return (
+    <View style={styles.container}>
+      <Surface style={styles.surface}>
+        <Text style={styles.title}>Welcome!</Text>
+        <Text style={styles.subtitle}>You're successfully logged in</Text>
+        <Text style={styles.email}>{user?.email}</Text>
+        
+        <Button
+          mode="contained"
+          onPress={handleSignOut}
+          style={styles.signOutButton}
+        >
+          Sign Out
+        </Button>
+      </Surface>
+    </View>
+  );
+};
+
+export default HomeScreen;
+
+END OF HomeScreen.tsx>
+
+LoginScreen.tsx<
+
+// src/screens/LoginScreen.tsx
+
+import React, { useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from 'react-native';
+import {
+  Button,
+  Text,
+  TextInput,
+  Surface,
+  useTheme,
+  IconButton,
+  Divider,
+  ActivityIndicator,
+} from 'react-native-paper';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../utils/firebase';
+
+type LoginScreenProps = {
+  navigation: any;
+};
+
+const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
+  const theme = useTheme();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showEmailLogin, setShowEmailLogin] = useState(false);
+
+  const handleEmailLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // Navigation will be handled by the auth state listener
+    } catch (error: any) {
+      Alert.alert('Login Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    Alert.alert('Coming Soon', 'Google sign-in will be implemented soon!');
+  };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    scrollContainer: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 40,
+    },
+    surface: {
+      padding: 24,
+      borderRadius: 16,
+      marginBottom: 24,
+      elevation: 4,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 16,
+      color: theme.colors.onSurfaceVariant,
+      textAlign: 'center',
+      marginBottom: 32,
+    },
+    socialButtonsContainer: {
+      gap: 16,
+      marginBottom: 24,
+    },
+    socialButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.outline,
+    },
+    socialButtonContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+    },
+    socialButtonText: {
+      fontSize: 16,
+      fontWeight: '500',
+    },
+    dividerContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 24,
+      gap: 16,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: theme.colors.outline,
+    },
+    dividerText: {
+      fontSize: 14,
+      color: theme.colors.onSurfaceVariant,
+    },
+    emailContainer: {
+      gap: 16,
+    },
+    textInput: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+    },
+    passwordContainer: {
+      position: 'relative',
+    },
+    loginButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginTop: 8,
+    },
+    backButton: {
+      alignSelf: 'center',
+      marginTop: 16,
+    },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 24,
+      gap: 4,
+    },
+    footerText: {
+      fontSize: 14,
+      color: theme.colors.onSurfaceVariant,
+    },
+    registerLink: {
+      fontSize: 14,
+      color: theme.colors.primary,
+      fontWeight: '500',
+    },
+    loadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+  });
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <Surface style={styles.surface}>
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Sign in to your account</Text>
+
+          {!showEmailLogin ? (
+            <>
+              <View style={styles.socialButtonsContainer}>
+                <Button
+                  mode="outlined"
+                  style={styles.socialButton}
+                  onPress={handleGoogleLogin}
+                  disabled={loading}
+                >
+                  <View style={styles.socialButtonContent}>
+                    <Text style={styles.socialButtonText}>Continue with Google</Text>
+                  </View>
+                </Button>
+
+                <Button
+                  mode="outlined"
+                  style={styles.socialButton}
+                  onPress={() => setShowEmailLogin(true)}
+                  disabled={loading}
+                >
+                  <View style={styles.socialButtonContent}>
+                    <Text style={styles.socialButtonText}>Continue with Email</Text>
+                  </View>
+                </Button>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>Email Login</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.emailContainer}>
+                <TextInput
+                  mode="outlined"
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.textInput}
+                  disabled={loading}
+                />
+
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    mode="outlined"
+                    label="Password"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    style={styles.textInput}
+                    disabled={loading}
+                    right={
+                      <TextInput.Icon
+                        icon={showPassword ? 'eye-off' : 'eye'}
+                        onPress={() => setShowPassword(!showPassword)}
+                      />
+                    }
+                  />
+                </View>
+
+                <Button
+                  mode="contained"
+                  onPress={handleEmailLogin}
+                  style={styles.loginButton}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.onPrimary} />
+                      <Text style={{ color: theme.colors.onPrimary }}>Signing in...</Text>
+                    </View>
+                  ) : (
+                    'Sign In'
+                  )}
+                </Button>
+
+                <Button
+                  mode="text"
+                  onPress={() => setShowEmailLogin(false)}
+                  style={styles.backButton}
+                  disabled={loading}
+                >
+                  Back to options
+                </Button>
+              </View>
+            </>
+          )}
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account?</Text>
+            <Button
+              mode="text"
+              onPress={() => navigation.navigate('Register')}
+              disabled={loading}
+            >
+              <Text style={styles.registerLink}>Sign up</Text>
+            </Button>
+          </View>
+        </Surface>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+export default LoginScreen;
+
+END OF LoginScreen.tsx>
+
+RegisterScreen.tsx<
+
+// src/screens/RegisterScreen.tsx
+
+import React, { useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from 'react-native';
+import {
+  Button,
+  Text,
+  TextInput,
+  Surface,
+  useTheme,
+  IconButton,
+  Divider,
+  ActivityIndicator,
+} from 'react-native-paper';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../utils/firebase';
+
+type RegisterScreenProps = {
+  navigation: any;
+};
+
+const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
+  const theme = useTheme();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showEmailRegister, setShowEmailRegister] = useState(false);
+
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const handleEmailRegister = async () => {
+    if (!email || !password || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!validateEmail(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters long');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      // Navigation will be handled by the auth state listener
+    } catch (error: any) {
+      Alert.alert('Registration Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    Alert.alert('Coming Soon', 'Google sign-up will be implemented soon!');
+  };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    scrollContainer: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 40,
+    },
+    surface: {
+      padding: 24,
+      borderRadius: 16,
+      marginBottom: 24,
+      elevation: 4,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 16,
+      color: theme.colors.onSurfaceVariant,
+      textAlign: 'center',
+      marginBottom: 32,
+    },
+    socialButtonsContainer: {
+      gap: 16,
+      marginBottom: 24,
+    },
+    socialButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.colors.outline,
+    },
+    socialButtonContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+    },
+    socialButtonText: {
+      fontSize: 16,
+      fontWeight: '500',
+    },
+    dividerContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: 24,
+      gap: 16,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: theme.colors.outline,
+    },
+    dividerText: {
+      fontSize: 14,
+      color: theme.colors.onSurfaceVariant,
+    },
+    emailContainer: {
+      gap: 16,
+    },
+    textInput: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+    },
+    passwordContainer: {
+      position: 'relative',
+    },
+    registerButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginTop: 8,
+    },
+    backButton: {
+      alignSelf: 'center',
+      marginTop: 16,
+    },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginTop: 24,
+      gap: 4,
+    },
+    footerText: {
+      fontSize: 14,
+      color: theme.colors.onSurfaceVariant,
+    },
+    loginLink: {
+      fontSize: 14,
+      color: theme.colors.primary,
+      fontWeight: '500',
+    },
+    loadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+  });
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <Surface style={styles.surface}>
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Sign up to get started</Text>
+
+          {!showEmailRegister ? (
+            <>
+              <View style={styles.socialButtonsContainer}>
+                <Button
+                  mode="outlined"
+                  style={styles.socialButton}
+                  onPress={handleGoogleRegister}
+                  disabled={loading}
+                >
+                  <View style={styles.socialButtonContent}>
+                    <Text style={styles.socialButtonText}>Continue with Google</Text>
+                  </View>
+                </Button>
+
+                <Button
+                  mode="outlined"
+                  style={styles.socialButton}
+                  onPress={() => setShowEmailRegister(true)}
+                  disabled={loading}
+                >
+                  <View style={styles.socialButtonContent}>
+                    <Text style={styles.socialButtonText}>Continue with Email</Text>
+                  </View>
+                </Button>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>Email Registration</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.emailContainer}>
+                <TextInput
+                  mode="outlined"
+                  label="Email"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.textInput}
+                  disabled={loading}
+                />
+
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    mode="outlined"
+                    label="Password"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    style={styles.textInput}
+                    disabled={loading}
+                    right={
+                      <TextInput.Icon
+                        icon={showPassword ? 'eye-off' : 'eye'}
+                        onPress={() => setShowPassword(!showPassword)}
+                      />
+                    }
+                  />
+                </View>
+
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    mode="outlined"
+                    label="Confirm Password"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirmPassword}
+                    style={styles.textInput}
+                    disabled={loading}
+                    right={
+                      <TextInput.Icon
+                        icon={showConfirmPassword ? 'eye-off' : 'eye'}
+                        onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      />
+                    }
+                  />
+                </View>
+
+                <Button
+                  mode="contained"
+                  onPress={handleEmailRegister}
+                  style={styles.registerButton}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.onPrimary} />
+                      <Text style={{ color: theme.colors.onPrimary }}>Creating account...</Text>
+                    </View>
+                  ) : (
+                    'Create Account'
+                  )}
+                </Button>
+
+                <Button
+                  mode="text"
+                  onPress={() => setShowEmailRegister(false)}
+                  style={styles.backButton}
+                  disabled={loading}
+                >
+                  Back to options
+                </Button>
+              </View>
+            </>
+          )}
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Already have an account?</Text>
+            <Button
+              mode="text"
+              onPress={() => navigation.navigate('Login')}
+              disabled={loading}
+            >
+              <Text style={styles.loginLink}>Sign in</Text>
+            </Button>
+          </View>
+        </Surface>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+export default RegisterScreen;
+
+END OF RegisterScreen.tsx>
+
+UserCreationScreen.tsx<
+
+// src/screens/UserCreationScreen.tsx
+
+import React, { useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from 'react-native';
+import {
+  Button,
+  Text,
+  TextInput,
+  Surface,
+  useTheme,
+  ActivityIndicator,
+  HelperText,
+} from 'react-native-paper';
+import { doc, setDoc, query, where, getDocs, collection } from 'firebase/firestore';
+import { auth, firestore } from '../utils/firebase';
+
+type UserCreationScreenProps = {
+  navigation: any;
+};
+
+const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) => {
+  const theme = useTheme();
+  const [username, setUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+  const [checkingUsername, setCheckingUsername] = useState(false);
+
+  const validateUsername = (username: string) => {
+    const regex = /^[a-zA-Z0-9_]+$/;
+    if (!username) {
+      return 'Username is required';
+    }
+    if (username.length < 3) {
+      return 'Username must be at least 3 characters long';
+    }
+    if (username.length > 20) {
+      return 'Username must be less than 20 characters';
+    }
+    if (!regex.test(username)) {
+      return 'Username can only contain letters, numbers, and underscores';
+    }
+    return '';
+  };
+
+  const checkUsernameAvailability = async (username: string) => {
+    setCheckingUsername(true);
+    try {
+      const q = query(
+        collection(firestore, 'users'),
+        where('username', '==', username)
+      );
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.empty;
+    } catch (error) {
+      console.error('Error checking username availability:', error);
+      return false;
+    } finally {
+      setCheckingUsername(false);
+    }
+  };
+
+  const handleUsernameChange = async (text: string) => {
+    setUsername(text);
+    const validationError = validateUsername(text);
+    
+    if (validationError) {
+      setUsernameError(validationError);
+      return;
+    }
+
+    // Check availability after validation passes
+    const isAvailable = await checkUsernameAvailability(text);
+    if (!isAvailable) {
+      setUsernameError('Username is already taken');
+    } else {
+      setUsernameError('');
+    }
+  };
+
+  const handleCreateProfile = async () => {
+    const validationError = validateUsername(username);
+    if (validationError) {
+      setUsernameError(validationError);
+      return;
+    }
+
+    if (usernameError) {
+      Alert.alert('Error', usernameError);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error('No authenticated user found');
+      }
+
+      // Double-check username availability
+      const isAvailable = await checkUsernameAvailability(username);
+      if (!isAvailable) {
+        setUsernameError('Username is already taken');
+        setLoading(false);
+        return;
+      }
+
+      // Create user profile
+      await setDoc(doc(firestore, 'users', user.uid), {
+        uid: user.uid,
+        username: username,
+        email: user.email,
+        createdAt: new Date().toISOString(),
+      });
+
+      Alert.alert('Success', 'Profile created successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    scrollContainer: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+      paddingVertical: 40,
+    },
+    surface: {
+      padding: 24,
+      borderRadius: 16,
+      elevation: 4,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    subtitle: {
+      fontSize: 16,
+      color: theme.colors.onSurfaceVariant,
+      textAlign: 'center',
+      marginBottom: 32,
+      lineHeight: 24,
+    },
+    inputContainer: {
+      marginBottom: 24,
+    },
+    textInput: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 12,
+      marginBottom: 8,
+    },
+    helperText: {
+      fontSize: 12,
+      marginTop: 4,
+    },
+    createButton: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginTop: 16,
+    },
+    loadingContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    usernameContainer: {
+      position: 'relative',
+    },
+    checkingIndicator: {
+      position: 'absolute',
+      right: 16,
+      top: 20,
+    },
+  });
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <Surface style={styles.surface}>
+          <Text style={styles.title}>Complete Setup</Text>
+          <Text style={styles.subtitle}>
+            Choose a unique username
+          </Text>
+
+          <View style={styles.inputContainer}>
+            <View style={styles.usernameContainer}>
+              <TextInput
+                mode="outlined"
+                label="Username"
+                value={username}
+                onChangeText={handleUsernameChange}
+                style={styles.textInput}
+                disabled={loading}
+                error={!!usernameError}
+                autoCapitalize="none"
+                placeholder="Enter your username"
+              />
+              {checkingUsername && (
+                <ActivityIndicator
+                  size="small"
+                  color={theme.colors.primary}
+                  style={styles.checkingIndicator}
+                />
+              )}
+            </View>
+            
+            <HelperText 
+              type={usernameError ? 'error' : 'info'} 
+              visible={!!usernameError || !usernameError && username.length > 0}
+              style={styles.helperText}
+            >
+              {usernameError || 'Username can contain letters, numbers, and underscores'}
+            </HelperText>
+          </View>
+
+          <Button
+            mode="contained"
+            onPress={handleCreateProfile}
+            style={styles.createButton}
+            disabled={loading || !!usernameError || !username || checkingUsername}
+          >
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={theme.colors.onPrimary} />
+                <Text style={{ color: theme.colors.onPrimary }}>Creating profile...</Text>
+              </View>
+            ) : (
+              'Complete Setup'
+            )}
+          </Button>
+        </Surface>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+export default UserCreationScreen;
+
+END OF UserCreationScreen.tsx>
+
+firebase.ts<
+
+// src/utils/firebase.ts
+
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import Constants from 'expo-constants';
+
+const firebaseConfig = {
+  apiKey: Constants.expoConfig?.extra?.FIREBASE_API_KEY,
+  authDomain: Constants.expoConfig?.extra?.FIREBASE_AUTH_DOMAIN,
+  projectId: Constants.expoConfig?.extra?.FIREBASE_PROJECT_ID,
+  storageBucket: Constants.expoConfig?.extra?.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: Constants.expoConfig?.extra?.FIREBASE_MESSAGING_SENDER_ID,
+  appId: Constants.expoConfig?.extra?.FIREBASE_APP_ID,
+  measurementId: Constants.expoConfig?.extra?.FIREBASE_MEASUREMENT_ID
+};
+
+const app = initializeApp(firebaseConfig);
+const firestore = getFirestore(app);
+const auth = getAuth(app);
+
+export { firestore, auth };
+
+END OF firebase.ts>
+
+theme.ts<
+
+// src/themes/theme.ts
+
+import { MD3DarkTheme, configureFonts } from 'react-native-paper';
+
+const fontConfig = {
+  displayLarge: {
+    fontFamily: 'System',
+    fontSize: 57,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 64,
+  },
+  displayMedium: {
+    fontFamily: 'System',
+    fontSize: 45,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 52,
+  },
+  displaySmall: {
+    fontFamily: 'System',
+    fontSize: 36,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 44,
+  },
+  headlineLarge: {
+    fontFamily: 'System',
+    fontSize: 32,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 40,
+  },
+  headlineMedium: {
+    fontFamily: 'System',
+    fontSize: 28,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 36,
+  },
+  headlineSmall: {
+    fontFamily: 'System',
+    fontSize: 24,
+    fontWeight: '400' as const,
+    letterSpacing: 0,
+    lineHeight: 32,
+  },
+  titleLarge: {
+    fontFamily: 'System',
+    fontSize: 22,
+    fontWeight: '500' as const,
+    letterSpacing: 0,
+    lineHeight: 28,
+  },
+  titleMedium: {
+    fontFamily: 'System',
+    fontSize: 16,
+    fontWeight: '500' as const,
+    letterSpacing: 0.1,
+    lineHeight: 24,
+  },
+  titleSmall: {
+    fontFamily: 'System',
+    fontSize: 14,
+    fontWeight: '500' as const,
+    letterSpacing: 0.1,
+    lineHeight: 20,
+  },
+  labelLarge: {
+    fontFamily: 'System',
+    fontSize: 14,
+    fontWeight: '500' as const,
+    letterSpacing: 0.1,
+    lineHeight: 20,
+  },
+  labelMedium: {
+    fontFamily: 'System',
+    fontSize: 12,
+    fontWeight: '500' as const,
+    letterSpacing: 0.5,
+    lineHeight: 16,
+  },
+  labelSmall: {
+    fontFamily: 'System',
+    fontSize: 11,
+    fontWeight: '500' as const,
+    letterSpacing: 0.5,
+    lineHeight: 16,
+  },
+  bodyLarge: {
+    fontFamily: 'System',
+    fontSize: 16,
+    fontWeight: '400' as const,
+    letterSpacing: 0.5,
+    lineHeight: 24,
+  },
+  bodyMedium: {
+    fontFamily: 'System',
+    fontSize: 14,
+    fontWeight: '400' as const,
+    letterSpacing: 0.25,
+    lineHeight: 20,
+  },
+  bodySmall: {
+    fontFamily: 'System',
+    fontSize: 12,
+    fontWeight: '400' as const,
+    letterSpacing: 0.4,
+    lineHeight: 16,
+  },
+};
+
+export const customDarkTheme = {
+  ...MD3DarkTheme,
+  fonts: configureFonts({ config: fontConfig }),
+  colors: {
+    ...MD3DarkTheme.colors,
+    primary: '#6C5CE7',
+    primaryContainer: '#4834D4',
+    secondary: '#A29BFE',
+    secondaryContainer: '#6C5CE7',
+    tertiary: '#FD79A8',
+    tertiaryContainer: '#E84393',
+    surface: '#1E1E1E',
+    surfaceVariant: '#2A2A2A',
+    background: '#121212',
+    error: '#FF6B6B',
+    errorContainer: '#FF5252',
+    onPrimary: '#FFFFFF',
+    onPrimaryContainer: '#FFFFFF',
+    onSecondary: '#FFFFFF',
+    onSecondaryContainer: '#FFFFFF',
+    onTertiary: '#FFFFFF',
+    onTertiaryContainer: '#FFFFFF',
+    onSurface: '#FFFFFF',
+    onSurfaceVariant: '#CCCCCC',
+    onBackground: '#FFFFFF',
+    onError: '#FFFFFF',
+    onErrorContainer: '#FFFFFF',
+    outline: '#666666',
+    outlineVariant: '#444444',
+    shadow: '#000000',
+    scrim: '#000000',
+    inverseSurface: '#FFFFFF',
+    inverseOnSurface: '#000000',
+    inversePrimary: '#6C5CE7',
+    elevation: {
+      level0: 'transparent',
+      level1: '#1E1E1E',
+      level2: '#2A2A2A',
+      level3: '#363636',
+      level4: '#404040',
+      level5: '#4A4A4A',
+    },
+    surfaceDisabled: '#1E1E1E',
+    onSurfaceDisabled: '#666666',
+    backdrop: 'rgba(0, 0, 0, 0.4)',
+  },
+};
+
+export default customDarkTheme;
+
+END OF theme.ts>
+
+App.tsx<
+
+// App.tsx
+
+import React from 'react';
+import { Provider as PaperProvider } from 'react-native-paper';
+import { StatusBar } from 'expo-status-bar';
+import AppNavigator from './src/navigation/AppNavigator';
+import customDarkTheme from './src/themes/theme';
+
+const App: React.FC = () => {
+  return (
+    <PaperProvider theme={customDarkTheme}>
+      <StatusBar style="light" backgroundColor={customDarkTheme.colors.surface} />
+      <AppNavigator />
+    </PaperProvider>
+  );
+};
+
+export default App;
+
+END OF App.tsx>
+
