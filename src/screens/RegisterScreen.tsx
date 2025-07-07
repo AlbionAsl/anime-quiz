@@ -7,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native';
 import {
   Button,
@@ -18,8 +17,10 @@ import {
   IconButton,
   Divider,
   ActivityIndicator,
+  Dialog,
+  Portal,
 } from 'react-native-paper';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { auth } from '../utils/firebase';
 
 type RegisterScreenProps = {
@@ -35,6 +36,11 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showEmailRegister, setShowEmailRegister] = useState(false);
+  const [showVerificationDialog, setShowVerificationDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorTitle, setErrorTitle] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [pendingSignOut, setPendingSignOut] = useState(false);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -43,38 +49,112 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
 
   const handleEmailRegister = async () => {
     if (!email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setErrorTitle('Missing Information');
+      setErrorMessage('Please fill in all fields to continue.');
+      setShowErrorDialog(true);
       return;
     }
 
     if (!validateEmail(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      setErrorTitle('Invalid Email');
+      setErrorMessage('Please enter a valid email address.');
+      setShowErrorDialog(true);
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
+      setErrorTitle('Weak Password');
+      setErrorMessage('Password must be at least 6 characters long.');
+      setShowErrorDialog(true);
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      setErrorTitle('Password Mismatch');
+      setErrorMessage('The passwords you entered do not match. Please try again.');
+      setShowErrorDialog(true);
       return;
     }
 
     setLoading(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      // Navigation will be handled by the auth state listener
+      // Create user account
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Send email verification
+      await sendEmailVerification(userCredential.user);
+      
+      // Mark that we need to sign out after dialog is dismissed
+      setPendingSignOut(true);
+      
+      // Show verification dialog (don't sign out yet!)
+      setShowVerificationDialog(true);
+      
     } catch (error: any) {
-      Alert.alert('Registration Error', error.message);
+      let title = 'Registration Failed';
+      let message = 'An error occurred during registration. Please try again.';
+      
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          title = 'Email Already Registered';
+          message = 'This email is already associated with an account. Please sign in or use a different email.';
+          break;
+        case 'auth/invalid-email':
+          title = 'Invalid Email';
+          message = 'The email address is not valid. Please check and try again.';
+          break;
+        case 'auth/operation-not-allowed':
+          title = 'Registration Disabled';
+          message = 'Email/password accounts are not enabled. Please contact support.';
+          break;
+        case 'auth/weak-password':
+          title = 'Weak Password';
+          message = 'The password is too weak. Please use a stronger password.';
+          break;
+        case 'auth/network-request-failed':
+          title = 'Network Error';
+          message = 'Please check your internet connection and try again.';
+          break;
+        default:
+          if (error.message) {
+            message = error.message;
+          }
+      }
+      
+      setErrorTitle(title);
+      setErrorMessage(message);
+      setShowErrorDialog(true);
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleRegister = async () => {
-    Alert.alert('Coming Soon', 'Google sign-up will be implemented soon!');
+    setErrorTitle('Coming Soon');
+    setErrorMessage('Google sign-up will be implemented soon!');
+    setShowErrorDialog(true);
+  };
+
+  const handleVerificationDialogDismiss = async () => {
+    setShowVerificationDialog(false);
+    
+    // Sign out the user after they acknowledge the dialog
+    if (pendingSignOut) {
+      try {
+        await auth.signOut();
+      } catch (error) {
+        console.error('Error signing out:', error);
+      }
+    }
+    
+    // Clear form fields
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setShowEmailRegister(false);
+    setPendingSignOut(false);
+    
+    // Navigation will be handled by auth state listener after sign out
   };
 
   const styles = StyleSheet.create({
@@ -182,6 +262,24 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
+    },
+    dialogContent: {
+      paddingTop: 10,
+    },
+    dialogText: {
+      fontSize: 16,
+      lineHeight: 24,
+      marginBottom: 10,
+    },
+    dialogEmail: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      textAlign: 'center',
+      marginVertical: 10,
+    },
+    dialogTitle: {
+      textAlign: 'center',
     },
   });
 
@@ -320,6 +418,42 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
           </View>
         </Surface>
       </ScrollView>
+
+      <Portal>
+        <Dialog visible={showVerificationDialog} dismissable={false}>
+          <Dialog.Title>Verify Your Email</Dialog.Title>
+          <Dialog.Content style={styles.dialogContent}>
+            <Text style={styles.dialogText}>
+              We've sent a verification email to:
+            </Text>
+            <Text style={styles.dialogEmail}>{email}</Text>
+            <Text style={styles.dialogText}>
+              Please check your inbox and click the verification link to activate your account.
+            </Text>
+            <Text style={styles.dialogText}>
+              Once verified, you can log in with your credentials.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={handleVerificationDialogDismiss}>OK</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog
+          visible={showErrorDialog}
+          onDismiss={() => setShowErrorDialog(false)}
+          dismissable={false}
+        >
+          <Dialog.Icon icon="alert-circle" size={48} />
+          <Dialog.Title style={styles.dialogTitle}>{errorTitle}</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogText}>{errorMessage}</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowErrorDialog(false)}>OK</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </KeyboardAvoidingView>
   );
 };

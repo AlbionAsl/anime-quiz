@@ -46,6 +46,7 @@ file_paths = [
     # "src/utils/logger.ts",
     "src/utils/firebase.ts",
     "src/utils/quizUtils.ts",
+    "src/utils/rankingUtils.ts",
     # "src/utils/retry.ts",
     "src/themes/theme.ts",
     "App.tsx",

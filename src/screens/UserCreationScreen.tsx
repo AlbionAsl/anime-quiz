@@ -1,6 +1,6 @@
 // src/screens/UserCreationScreen.tsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -31,6 +31,7 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
   const [loading, setLoading] = useState(false);
   const [usernameError, setUsernameError] = useState('');
   const [checkingUsername, setCheckingUsername] = useState(false);
+  const [isUsernameAvailable, setIsUsernameAvailable] = useState<boolean | null>(null);
 
   const validateUsername = (username: string) => {
     const regex = /^[a-zA-Z0-9_]+$/;
@@ -49,50 +50,61 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
     return '';
   };
 
-  const checkUsernameAvailability = async (username: string) => {
-    setCheckingUsername(true);
+  const checkUsernameAvailability = async (username: string): Promise<boolean> => {
     try {
-      const q = query(
-        collection(firestore, 'users'),
-        where('username', '==', username)
-      );
+      const usersRef = collection(firestore, 'users');
+      const q = query(usersRef, where('username', '==', username.toLowerCase()));
       const querySnapshot = await getDocs(q);
       return querySnapshot.empty;
     } catch (error) {
       console.error('Error checking username availability:', error);
       return false;
-    } finally {
-      setCheckingUsername(false);
     }
   };
 
-  const handleUsernameChange = async (text: string) => {
-    setUsername(text);
-    const validationError = validateUsername(text);
-    
-    if (validationError) {
-      setUsernameError(validationError);
-      return;
-    }
+  useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      if (username.length >= 3) {
+        const validationError = validateUsername(username);
+        
+        if (validationError) {
+          setUsernameError(validationError);
+          setIsUsernameAvailable(null);
+          return;
+        }
 
-    // Check availability after validation passes
-    const isAvailable = await checkUsernameAvailability(text);
-    if (!isAvailable) {
-      setUsernameError('Username is already taken');
-    } else {
-      setUsernameError('');
-    }
-  };
+        setCheckingUsername(true);
+        const isAvailable = await checkUsernameAvailability(username);
+        setCheckingUsername(false);
+        
+        if (!isAvailable) {
+          setUsernameError('Username is already taken');
+          setIsUsernameAvailable(false);
+        } else {
+          setUsernameError('');
+          setIsUsernameAvailable(true);
+        }
+      } else if (username.length > 0) {
+        setUsernameError(validateUsername(username));
+        setIsUsernameAvailable(null);
+      } else {
+        setUsernameError('');
+        setIsUsernameAvailable(null);
+      }
+    }, 500); // Debounce for 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [username]);
 
   const handleCreateProfile = async () => {
     const validationError = validateUsername(username);
     if (validationError) {
-      setUsernameError(validationError);
+      Alert.alert('Error', validationError);
       return;
     }
 
-    if (usernameError) {
-      Alert.alert('Error', usernameError);
+    if (!isUsernameAvailable) {
+      Alert.alert('Error', 'Username is not available');
       return;
     }
 
@@ -107,24 +119,57 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
       const isAvailable = await checkUsernameAvailability(username);
       if (!isAvailable) {
         setUsernameError('Username is already taken');
+        setIsUsernameAvailable(false);
         setLoading(false);
         return;
       }
 
-      // Create user profile
+      // Create user profile with lowercase username for uniqueness
       await setDoc(doc(firestore, 'users', user.uid), {
         uid: user.uid,
-        username: username,
+        username: username.toLowerCase(), // Store username in lowercase
+        displayUsername: username, // Store original case for display
         email: user.email,
         createdAt: new Date().toISOString(),
+        totalQuizzes: 0,
+        totalCorrectAnswers: 0,
+        stats: {
+          allTime: {
+            totalQuizzes: 0,
+            totalCorrectAnswers: 0,
+            averageScore: 0
+          },
+          categories: {}
+        }
       });
 
-      Alert.alert('Success', 'Profile created successfully!');
+      // Navigation will be handled by the auth state listener in AppNavigator
     } catch (error: any) {
       Alert.alert('Error', error.message);
-    } finally {
       setLoading(false);
     }
+  };
+
+  const getHelperText = () => {
+    if (checkingUsername) {
+      return 'Checking availability...';
+    }
+    if (usernameError) {
+      return usernameError;
+    }
+    if (isUsernameAvailable === true && username.length >= 3) {
+      return 'Username is available!';
+    }
+    if (username.length === 0) {
+      return 'Username can contain letters, numbers, and underscores';
+    }
+    return '';
+  };
+
+  const getHelperTextType = () => {
+    if (usernameError) return 'error';
+    if (isUsernameAvailable === true && username.length >= 3) return 'info';
+    return 'info';
   };
 
   const styles = StyleSheet.create({
@@ -188,6 +233,11 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
       right: 16,
       top: 20,
     },
+    availableIcon: {
+      position: 'absolute',
+      right: 16,
+      top: 20,
+    },
   });
 
   return (
@@ -211,28 +261,46 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
                 mode="outlined"
                 label="Username"
                 value={username}
-                onChangeText={handleUsernameChange}
+                onChangeText={setUsername}
                 style={styles.textInput}
                 disabled={loading}
                 error={!!usernameError}
                 autoCapitalize="none"
                 placeholder="Enter your username"
+                right={
+                  checkingUsername ? (
+                    <TextInput.Icon
+                      icon={() => (
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.colors.primary}
+                        />
+                      )}
+                    />
+                  ) : isUsernameAvailable === true && username.length >= 3 ? (
+                    <TextInput.Icon
+                      icon="check-circle"
+                      color={theme.colors.primary}
+                    />
+                  ) : isUsernameAvailable === false ? (
+                    <TextInput.Icon
+                      icon="close-circle"
+                      color={theme.colors.error}
+                    />
+                  ) : null
+                }
               />
-              {checkingUsername && (
-                <ActivityIndicator
-                  size="small"
-                  color={theme.colors.primary}
-                  style={styles.checkingIndicator}
-                />
-              )}
             </View>
             
             <HelperText 
-              type={usernameError ? 'error' : 'info'} 
-              visible={!!usernameError || !usernameError && username.length > 0}
-              style={styles.helperText}
+              type={getHelperTextType()} 
+              visible={true}
+              style={[
+                styles.helperText,
+                isUsernameAvailable === true && username.length >= 3 && { color: theme.colors.primary }
+              ]}
             >
-              {usernameError || 'Username can contain letters, numbers, and underscores'}
+              {getHelperText()}
             </HelperText>
           </View>
 
@@ -240,7 +308,7 @@ const UserCreationScreen: React.FC<UserCreationScreenProps> = ({ navigation }) =
             mode="contained"
             onPress={handleCreateProfile}
             style={styles.createButton}
-            disabled={loading || !!usernameError || !username || checkingUsername}
+            disabled={loading || !!usernameError || !username || checkingUsername || !isUsernameAvailable}
           >
             {loading ? (
               <View style={styles.loadingContainer}>

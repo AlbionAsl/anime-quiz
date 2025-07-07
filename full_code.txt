@@ -321,6 +321,7 @@ const AppNavigator: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
@@ -328,6 +329,7 @@ const AppNavigator: React.FC = () => {
     const authUnsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        setProfileLoading(true);
         
         // Clean up previous profile listener
         if (profileUnsubscribe) {
@@ -340,17 +342,20 @@ const AppNavigator: React.FC = () => {
           userDocRef,
           (docSnap) => {
             setHasProfile(docSnap.exists());
+            setProfileLoading(false);
             setLoading(false);
           },
           (error) => {
             console.error('Error listening to user profile:', error);
             setHasProfile(false);
+            setProfileLoading(false);
             setLoading(false);
           }
         );
       } else {
         setUser(null);
         setHasProfile(false);
+        setProfileLoading(false);
         setLoading(false);
         
         // Clean up profile listener when user signs out
@@ -369,7 +374,7 @@ const AppNavigator: React.FC = () => {
     };
   }, []);
 
-  if (loading) {
+  if (loading || (user && profileLoading)) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -922,6 +927,7 @@ import { PlayStackParamList } from '../navigation/PlayNavigator';
 import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import { getDailyQuestions, getUTCDateString } from '../utils/quizUtils';
+import { updateRankings } from '../utils/rankingUtils';
 
 type QuizScreenRouteProp = RouteProp<PlayStackParamList, 'Quiz'>;
 type QuizScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Quiz'>;
@@ -1061,6 +1067,9 @@ const QuizScreen: React.FC = () => {
         totalCorrectAnswers: increment(score),
         [`categoryScores.${category}`]: increment(score),
       });
+
+      // Update rankings
+      await updateRankings(user.uid, category, score, questions.length);
 
       setShowResults(true);
       
@@ -1386,19 +1395,423 @@ RankingsScreen.tsx<
 
 // src/screens/RankingsScreen.tsx
 
-import React from 'react';
-import { View, StyleSheet, SafeAreaView } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  RefreshControl,
+  Dimensions,
+} from 'react-native';
+import {
+  Text,
+  Surface,
+  useTheme,
+  ActivityIndicator,
+  Chip,
+  Menu,
+  Button,
+  IconButton,
+  Divider,
+  Avatar,
+} from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { onSnapshot, doc } from 'firebase/firestore';
+import { firestore, auth } from '../utils/firebase';
+import {
+  getLeaderboardData,
+  getUserRank,
+  getAvailableCategories,
+  getMonthString,
+} from '../utils/rankingUtils';
+import { getUTCDateString } from '../utils/quizUtils';
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 380;
+
+type Period = 'daily' | 'monthly' | 'allTime';
+type RankingType = 'totalScore' | 'averageScore';
+
+interface LeaderboardPlayer {
+  userId: string;
+  username: string;
+  score: number;
+  totalQuestions: number;
+  averageScore: number;
+  quizCount: number;
+  rank: number;
+}
+
+interface Category {
+  id: string;
+  title: string;
+}
+
+interface UserRankData {
+  rank: number;
+  totalPlayers: number;
+  score: number;
+  averageScore: number;
+}
 
 const RankingsScreen: React.FC = () => {
   const theme = useTheme();
+  const currentUser = auth.currentUser;
+
+  // State
+  const [selectedPeriod, setSelectedPeriod] = useState<Period>('daily');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategoryTitle, setSelectedCategoryTitle] = useState<string>('All Anime');
+  const [rankingType, setRankingType] = useState<RankingType>('totalScore');
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardPlayer[]>([]);
+  const [userRank, setUserRank] = useState<UserRankData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [totalPlayers, setTotalPlayers] = useState(0);
+
+  // Get period value based on selected period
+  const getPeriodValue = (): string => {
+    switch (selectedPeriod) {
+      case 'daily':
+        return getUTCDateString();
+      case 'monthly':
+        return getMonthString();
+      case 'allTime':
+        return 'all';
+      default:
+        return getUTCDateString();
+    }
+  };
+
+  // Fetch categories on mount
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  // Set up real-time listener for leaderboard
+  useEffect(() => {
+    const periodValue = getPeriodValue();
+    const cacheId = `${selectedPeriod}_${periodValue}_${selectedCategory}`;
+    
+    const unsubscribe = onSnapshot(
+      doc(firestore, 'leaderboardCache', cacheId),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          let players = data.topPlayers || [];
+          
+          // Sort by average score if that's the selected ranking type
+          if (rankingType === 'averageScore') {
+            players = [...players]
+              .filter(p => selectedPeriod === 'allTime' ? p.quizCount >= 20 : true)
+              .sort((a, b) => b.averageScore - a.averageScore)
+              .map((p, index) => ({ ...p, rank: index + 1 }));
+          }
+          
+          setLeaderboardData(players);
+          setTotalPlayers(data.totalPlayers || players.length);
+          setLoading(false);
+        } else {
+          setLeaderboardData([]);
+          setTotalPlayers(0);
+          setLoading(false);
+        }
+      },
+      (error) => {
+        console.error('Error listening to leaderboard:', error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [selectedPeriod, selectedCategory, rankingType]);
+
+  // Fetch user rank whenever period/category changes
+  useEffect(() => {
+    if (currentUser) {
+      fetchUserRank();
+    }
+  }, [selectedPeriod, selectedCategory, currentUser]);
+
+  const fetchCategories = async () => {
+    try {
+      const availableCategories = await getAvailableCategories();
+      setCategories(availableCategories);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  };
+
+  const fetchUserRank = async () => {
+    if (!currentUser) return;
+
+    try {
+      const periodValue = getPeriodValue();
+      const rankData = await getUserRank(
+        currentUser.uid,
+        selectedPeriod,
+        periodValue,
+        selectedCategory
+      );
+      setUserRank(rankData);
+    } catch (error) {
+      console.error('Error fetching user rank:', error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchCategories(), fetchUserRank()]);
+    setRefreshing(false);
+  };
+
+  const handleCategorySelect = (categoryId: string, categoryTitle: string) => {
+    setSelectedCategory(categoryId);
+    setSelectedCategoryTitle(categoryTitle);
+    setMenuVisible(false);
+  };
+
+  const getPeriodChips = () => [
+    { id: 'daily', label: 'Daily', icon: 'calendar-today' },
+    { id: 'monthly', label: 'Monthly', icon: 'calendar-month' },
+    { id: 'allTime', label: 'All Time', icon: 'infinity' },
+  ];
+
+  const getRankingTypeChips = () => [
+    { id: 'totalScore', label: 'Total Score', icon: 'numeric' },
+    { id: 'averageScore', label: 'Average Score', icon: 'percent' },
+  ];
+
+  const renderLeaderboardItem = (player: LeaderboardPlayer, index: number) => {
+    const isCurrentUser = currentUser?.uid === player.userId;
+    const showQuizCount = selectedPeriod === 'allTime' && rankingType === 'averageScore';
+
+    return (
+      <Surface
+        key={player.userId}
+        style={[
+          styles.leaderboardItem,
+          isCurrentUser && styles.currentUserItem,
+          { backgroundColor: isCurrentUser ? theme.colors.primaryContainer : theme.colors.surface }
+        ]}
+        elevation={isCurrentUser ? 2 : 1}
+      >
+        <View style={styles.rankContainer}>
+          {player.rank <= 3 ? (
+            <MaterialCommunityIcons
+              name={player.rank === 1 ? 'trophy' : player.rank === 2 ? 'medal' : 'medal-outline'}
+              size={24}
+              color={
+                player.rank === 1 ? '#FFD700' : 
+                player.rank === 2 ? '#C0C0C0' : 
+                '#CD7F32'
+              }
+            />
+          ) : (
+            <Text style={styles.rankText}>#{player.rank}</Text>
+          )}
+        </View>
+
+        <View style={styles.playerInfo}>
+          <Avatar.Text
+            size={36}
+            label={player.username.substring(0, 2).toUpperCase()}
+            style={{ backgroundColor: theme.colors.primary }}
+          />
+          <View style={styles.playerDetails}>
+            <Text style={[styles.username, isCurrentUser && styles.currentUserText]}>
+              {player.username}
+              {isCurrentUser && ' (You)'}
+            </Text>
+            {showQuizCount && (
+              <Text style={styles.quizCountText}>
+                {player.quizCount} quizzes
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.scoreContainer}>
+          <Text style={[styles.score, isCurrentUser && styles.currentUserScore]}>
+            {rankingType === 'totalScore' ? player.score : `${player.averageScore.toFixed(1)}%`}
+          </Text>
+          {rankingType === 'totalScore' && (
+            <Text style={styles.scoreSubtext}>
+              {((player.score / player.totalQuestions) * 100).toFixed(1)}% avg
+            </Text>
+          )}
+        </View>
+      </Surface>
+    );
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading rankings...</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.colors.primary }]}>Rankings</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>Coming Soon</Text>
-      </View>
+      <Surface style={styles.header} elevation={2}>
+        <Text style={styles.title}>Rankings</Text>
+        
+        {/* Category Selector */}
+        <View style={styles.categorySelector}>
+          <Menu
+            visible={menuVisible}
+            onDismiss={() => setMenuVisible(false)}
+            anchor={
+              <Button
+                mode="outlined"
+                onPress={() => setMenuVisible(true)}
+                style={styles.categoryButton}
+                contentStyle={styles.categoryButtonContent}
+              >
+                <MaterialCommunityIcons name="gamepad-variant" size={16} />
+                <Text style={styles.categoryButtonText}>{selectedCategoryTitle}</Text>
+                <MaterialCommunityIcons name="chevron-down" size={16} />
+              </Button>
+            }
+          >
+            {categories.map((category) => (
+              <Menu.Item
+                key={category.id}
+                onPress={() => handleCategorySelect(category.id, category.title)}
+                title={category.title}
+                leadingIcon={category.id === 'all' ? 'infinity' : 'gamepad-variant'}
+              />
+            ))}
+          </Menu>
+        </View>
+
+        {/* Period Selector */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScrollView}
+          contentContainerStyle={styles.chipContainer}
+        >
+          {getPeriodChips().map((period) => (
+            <Chip
+              key={period.id}
+              selected={selectedPeriod === period.id}
+              onPress={() => setSelectedPeriod(period.id as Period)}
+              style={[
+                styles.chip,
+                selectedPeriod === period.id && { backgroundColor: theme.colors.primaryContainer }
+              ]}
+              textStyle={styles.chipText}
+              icon={period.icon}
+            >
+              {period.label}
+            </Chip>
+          ))}
+        </ScrollView>
+
+        {/* Ranking Type Selector */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScrollView}
+          contentContainerStyle={styles.chipContainer}
+        >
+          {getRankingTypeChips().map((type) => (
+            <Chip
+              key={type.id}
+              selected={rankingType === type.id}
+              onPress={() => setRankingType(type.id as RankingType)}
+              style={[
+                styles.chip,
+                rankingType === type.id && { backgroundColor: theme.colors.primaryContainer }
+              ]}
+              textStyle={styles.chipText}
+              icon={type.icon}
+            >
+              {type.label}
+            </Chip>
+          ))}
+        </ScrollView>
+      </Surface>
+
+      {/* User Rank Card */}
+      {userRank && currentUser && (
+        <Surface style={styles.userRankCard} elevation={2}>
+          <View style={styles.userRankContent}>
+            <MaterialCommunityIcons
+              name="account-circle"
+              size={24}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.userRankText}>Your Rank</Text>
+            <Text style={styles.userRankValue}>
+              #{userRank.rank} / {userRank.totalPlayers}
+            </Text>
+            <Text style={styles.userScoreText}>
+              {rankingType === 'totalScore' 
+                ? `Score: ${userRank.score}`
+                : `Average: ${userRank.averageScore.toFixed(1)}%`
+              }
+            </Text>
+          </View>
+        </Surface>
+      )}
+
+      {/* Leaderboard */}
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+          />
+        }
+        contentContainerStyle={styles.scrollContent}
+      >
+        {rankingType === 'averageScore' && selectedPeriod === 'allTime' && (
+          <Surface style={[styles.infoCard, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
+            <MaterialCommunityIcons
+              name="information-outline"
+              size={20}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.infoText}>
+              Average score rankings require at least 20 quizzes completed
+            </Text>
+          </Surface>
+        )}
+
+        {leaderboardData.length > 0 ? (
+          <>
+            {leaderboardData.map((player, index) => renderLeaderboardItem(player, index))}
+            
+            {leaderboardData.length === 100 && (
+              <Text style={styles.footerText}>
+                Showing top 100 players out of {totalPlayers}
+              </Text>
+            )}
+          </>
+        ) : (
+          <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons
+              name="trophy-outline"
+              size={64}
+              color={theme.colors.onSurfaceVariant}
+            />
+            <Text style={styles.emptyText}>No rankings yet</Text>
+            <Text style={styles.emptySubtext}>
+              Be the first to complete a quiz!
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -1407,18 +1820,173 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  subtitle: {
+  loadingText: {
+    marginTop: 16,
     fontSize: 16,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  categorySelector: {
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  categoryButton: {
+    borderRadius: 8,
+  },
+  categoryButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  categoryButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  chipScrollView: {
+    marginBottom: 8,
+    maxHeight: 48,
+  },
+  chipContainer: {
+    paddingHorizontal: 4,
+    gap: 8,
+    alignItems: 'center',
+  },
+  chip: {
+    marginHorizontal: 4,
+  },
+  chipText: {
+    fontSize: 12,
+  },
+  userRankCard: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+  },
+  userRankContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  userRankText: {
+    fontSize: 14,
+    opacity: 0.8,
+    flex: 1,
+  },
+  userRankValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  userScoreText: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginLeft: 8,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  leaderboardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  currentUserItem: {
+    borderWidth: 2,
+  },
+  rankContainer: {
+    width: 40,
+    alignItems: 'center',
+  },
+  rankText: {
+    fontSize: 16,
+    fontWeight: '600',
+    opacity: 0.7,
+  },
+  playerInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginLeft: 8,
+  },
+  playerDetails: {
+    flex: 1,
+  },
+  username: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  currentUserText: {
+  },
+  quizCountText: {
+    fontSize: 12,
+    opacity: 0.6,
+    marginTop: 2,
+  },
+  scoreContainer: {
+    alignItems: 'flex-end',
+  },
+  score: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  currentUserScore: {
+  },
+  scoreSubtext: {
+    fontSize: 12,
+    opacity: 0.6,
+    marginTop: 2,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    opacity: 0.8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    marginTop: 8,
+    opacity: 0.6,
+  },
+  footerText: {
+    textAlign: 'center',
+    marginTop: 16,
+    fontSize: 14,
     opacity: 0.6,
   },
 });
@@ -2320,15 +2888,84 @@ ProfileScreen.tsx<
 
 // src/screens/ProfileScreen.tsx
 
-import React from 'react';
-import { View, StyleSheet, SafeAreaView } from 'react-native';
-import { Text, Button, useTheme } from 'react-native-paper';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  StyleSheet, 
+  SafeAreaView, 
+  ScrollView,
+  RefreshControl 
+} from 'react-native';
+import { 
+  Text, 
+  Button, 
+  useTheme, 
+  Surface, 
+  Divider,
+  ActivityIndicator,
+  Avatar,
+  IconButton,
+  ProgressBar
+} from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
-import { auth } from '../utils/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, firestore } from '../utils/firebase';
+import { getMonthString } from '../utils/rankingUtils';
+
+interface UserStats {
+  username: string;
+  email: string;
+  totalQuizzes: number;
+  totalCorrectAnswers: number;
+  stats?: {
+    allTime?: {
+      totalQuizzes: number;
+      totalCorrectAnswers: number;
+      averageScore: number;
+    };
+    categories?: {
+      [key: string]: {
+        totalQuizzes: number;
+        totalCorrectAnswers: number;
+        averageScore: number;
+      };
+    };
+  };
+  createdAt?: string;
+}
 
 const ProfileScreen: React.FC = () => {
   const theme = useTheme();
   const user = auth.currentUser;
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchUserStats();
+  }, []);
+
+  const fetchUserStats = async () => {
+    if (!user) return;
+
+    try {
+      const userDoc = await getDoc(doc(firestore, 'users', user.uid));
+      if (userDoc.exists()) {
+        setUserStats(userDoc.data() as UserStats);
+      }
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchUserStats();
+  };
 
   const handleSignOut = async () => {
     try {
@@ -2338,19 +2975,168 @@ const ProfileScreen: React.FC = () => {
     }
   };
 
+  const calculateOverallAverage = (): number => {
+    if (!userStats || !userStats.totalQuizzes || userStats.totalQuizzes === 0) return 0;
+    if (!userStats.totalCorrectAnswers) return 0;
+    // Assuming 10 questions per quiz
+    const totalPossibleAnswers = userStats.totalQuizzes * 10;
+    return (userStats.totalCorrectAnswers / totalPossibleAnswers) * 100;
+  };
+
+  const getMembershipDuration = (): string => {
+    if (!userStats?.createdAt) return 'New member';
+    
+    const createdDate = new Date(userStats.createdAt);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - createdDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 7) return `${diffDays} days`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months`;
+    return `${Math.floor(diffDays / 365)} years`;
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.content}>
-        <Text style={[styles.title, { color: theme.colors.primary }]}>Profile</Text>
-        <Text style={[styles.email, { color: theme.colors.onSurfaceVariant }]}>{user?.email}</Text>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+          />
+        }
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Header Section */}
+        <Surface style={styles.headerCard} elevation={2}>
+          <Avatar.Text
+            size={80}
+            label={userStats?.username?.substring(0, 2).toUpperCase() || 'AN'}
+            style={{ backgroundColor: theme.colors.primary }}
+          />
+          <Text style={styles.username}>{userStats?.username || 'Anonymous'}</Text>
+          <Text style={styles.email}>{user?.email}</Text>
+          <Text style={styles.memberDuration}>
+            <MaterialCommunityIcons name="clock-outline" size={14} /> Member for {getMembershipDuration()}
+          </Text>
+        </Surface>
+
+        {/* Quick Stats */}
+        <View style={styles.statsGrid}>
+          <Surface style={styles.statCard} elevation={1}>
+            <MaterialCommunityIcons
+              name="gamepad-variant"
+              size={24}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.statValue}>{userStats?.totalQuizzes || 0}</Text>
+            <Text style={styles.statLabel}>Quizzes Played</Text>
+          </Surface>
+
+          <Surface style={styles.statCard} elevation={1}>
+            <MaterialCommunityIcons
+              name="check-circle"
+              size={24}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.statValue}>{userStats?.totalCorrectAnswers || 0}</Text>
+            <Text style={styles.statLabel}>Correct Answers</Text>
+          </Surface>
+
+          <Surface style={styles.statCard} elevation={1}>
+            <MaterialCommunityIcons
+              name="percent"
+              size={24}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.statValue}>{calculateOverallAverage().toFixed(1)}%</Text>
+            <Text style={styles.statLabel}>Average Score</Text>
+          </Surface>
+        </View>
+
+        {/* Performance Overview */}
+        <Surface style={styles.performanceCard} elevation={1}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Performance Overview</Text>
+            <MaterialCommunityIcons
+              name="chart-line"
+              size={20}
+              color={theme.colors.primary}
+            />
+          </View>
+          
+          <View style={styles.performanceItem}>
+            <Text style={styles.performanceLabel}>Overall Accuracy</Text>
+            <Text style={styles.performanceValue}>{calculateOverallAverage().toFixed(1)}%</Text>
+            <ProgressBar
+              progress={calculateOverallAverage() / 100}
+              color={theme.colors.primary}
+              style={styles.progressBar}
+            />
+          </View>
+
+          {/* Category Breakdown */}
+          {userStats?.stats?.categories && Object.keys(userStats.stats.categories).length > 0 && (
+            <>
+              <Divider style={styles.divider} />
+              <Text style={styles.subsectionTitle}>Category Performance</Text>
+              {Object.entries(userStats.stats.categories)
+                .sort((a, b) => b[1].totalQuizzes - a[1].totalQuizzes)
+                .slice(0, 5)
+                .map(([categoryId, stats]) => (
+                  <View key={categoryId} style={styles.categoryItem}>
+                    <Text style={styles.categoryName}>
+                      {categoryId === 'all' ? 'All Anime' : `Category ${categoryId}`}
+                    </Text>
+                    <View style={styles.categoryStats}>
+                      <Text style={styles.categoryQuizzes}>{stats.totalQuizzes} quizzes</Text>
+  <Text style={styles.categoryScore}>
+                        {stats.averageScore ? stats.averageScore.toFixed(1) : '0.0'}%
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+            </>
+          )}
+        </Surface>
+
+        {/* Achievements Section (Placeholder) */}
+        <Surface style={styles.achievementsCard} elevation={1}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Achievements</Text>
+            <MaterialCommunityIcons
+              name="trophy"
+              size={20}
+              color={theme.colors.primary}
+            />
+          </View>
+          <Text style={styles.comingSoonText}>Coming Soon!</Text>
+          <Text style={styles.comingSoonSubtext}>
+            Unlock achievements by completing quizzes and climbing the rankings
+          </Text>
+        </Surface>
+
+        {/* Sign Out Button */}
         <Button
           mode="contained"
           onPress={handleSignOut}
           style={styles.signOutButton}
+          icon="logout"
         >
           Sign Out
         </Button>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -2359,24 +3145,144 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
-  title: {
+  scrollContent: {
+    paddingBottom: 20,
+  },
+  headerCard: {
+    margin: 16,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  username: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 16,
+    marginTop: 12,
   },
   email: {
     fontSize: 16,
-    marginBottom: 32,
+    opacity: 0.7,
+    marginTop: 4,
+  },
+  memberDuration: {
+    fontSize: 14,
+    opacity: 0.6,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 8,
+    marginBottom: 16,
+  },
+  statCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 12,
+    opacity: 0.7,
+    marginTop: 4,
+  },
+  performanceCard: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  performanceItem: {
+    marginBottom: 16,
+  },
+  performanceLabel: {
+    fontSize: 14,
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  performanceValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  progressBar: {
+    height: 8,
+    borderRadius: 4,
+  },
+  divider: {
+    marginVertical: 16,
+  },
+  subsectionTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 12,
     opacity: 0.8,
   },
+  categoryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  categoryName: {
+    fontSize: 14,
+    flex: 1,
+  },
+  categoryStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  categoryQuizzes: {
+    fontSize: 12,
+    opacity: 0.6,
+  },
+  categoryScore: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  achievementsCard: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+  },
+  comingSoonText: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.8,
+    marginTop: 20,
+  },
+  comingSoonSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    opacity: 0.6,
+    marginTop: 8,
+    marginBottom: 12,
+  },
   signOutButton: {
-    paddingHorizontal: 32,
+    marginHorizontal: 16,
+    marginTop: 8,
     paddingVertical: 8,
     borderRadius: 8,
   },
@@ -2632,6 +3538,407 @@ export const getTimeUntilReset = (): { hours: number; minutes: number; seconds: 
 };
 
 END OF quizUtils.ts>
+
+rankingUtils.ts<
+
+// src/utils/rankingUtils.ts
+
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  getDocs,
+  doc,
+  setDoc,
+  getDoc,
+  writeBatch,
+  serverTimestamp,
+  Timestamp
+} from 'firebase/firestore';
+import { firestore } from './firebase';
+
+interface RankingDocument {
+  period: 'daily' | 'monthly' | 'allTime';
+  periodValue: string;
+  category: string;
+  userId: string;
+  username: string;
+  score: number;
+  totalQuestions: number;
+  averageScore: number;
+  quizCount: number;
+  lastUpdated: Date;
+}
+
+interface LeaderboardPlayer {
+  userId: string;
+  username: string;
+  score: number;
+  totalQuestions: number;
+  averageScore: number;
+  quizCount: number;
+  rank: number;
+}
+
+interface LeaderboardCache {
+  period: 'daily' | 'monthly' | 'allTime';
+  periodValue: string;
+  category: string;
+  lastUpdated: Date;
+  topPlayers: LeaderboardPlayer[];
+  totalPlayers?: number;
+}
+
+/**
+ * Get the current month in YYYY-MM format
+ */
+export const getMonthString = (date: Date = new Date()): string => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+/**
+ * Update rankings after a quiz is completed
+ */
+export const updateRankings = async (
+  userId: string,
+  category: string,
+  score: number,
+  totalQuestions: number
+) => {
+  try {
+    const batch = writeBatch(firestore);
+    const now = new Date();
+    const dailyKey = getUTCDateString();
+    const monthlyKey = getMonthString(now);
+    
+    // Get user data
+    const userRef = doc(firestore, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      throw new Error('User not found');
+    }
+    
+    const userData = userDoc.data();
+    const username = userData.username || 'Anonymous';
+    const averageScore = (score / totalQuestions) * 100;
+    
+    // Update daily ranking
+    const dailyRankingId = `daily_${dailyKey}_${category}_${userId}`;
+    const dailyRankingRef = doc(firestore, 'rankings', dailyRankingId);
+    
+    batch.set(dailyRankingRef, {
+      period: 'daily',
+      periodValue: dailyKey,
+      category,
+      userId,
+      username,
+      score,
+      totalQuestions,
+      averageScore,
+      quizCount: 1,
+      lastUpdated: serverTimestamp()
+    });
+    
+    // Update monthly ranking (accumulative)
+    const monthlyRankingId = `monthly_${monthlyKey}_${category}_${userId}`;
+    const monthlyRankingRef = doc(firestore, 'rankings', monthlyRankingId);
+    const monthlyDoc = await getDoc(monthlyRankingRef);
+    
+    if (monthlyDoc.exists()) {
+      const monthlyData = monthlyDoc.data();
+      const newScore = monthlyData.score + score;
+      const newTotalQuestions = monthlyData.totalQuestions + totalQuestions;
+      const newQuizCount = monthlyData.quizCount + 1;
+      
+      batch.update(monthlyRankingRef, {
+        score: newScore,
+        totalQuestions: newTotalQuestions,
+        averageScore: (newScore / newTotalQuestions) * 100,
+        quizCount: newQuizCount,
+        lastUpdated: serverTimestamp()
+      });
+    } else {
+      batch.set(monthlyRankingRef, {
+        period: 'monthly',
+        periodValue: monthlyKey,
+        category,
+        userId,
+        username,
+        score,
+        totalQuestions,
+        averageScore,
+        quizCount: 1,
+        lastUpdated: serverTimestamp()
+      });
+    }
+    
+    // Update all-time ranking (accumulative)
+    const allTimeRankingId = `allTime_all_${category}_${userId}`;
+    const allTimeRankingRef = doc(firestore, 'rankings', allTimeRankingId);
+    const allTimeDoc = await getDoc(allTimeRankingRef);
+    
+    if (allTimeDoc.exists()) {
+      const allTimeData = allTimeDoc.data();
+      const newScore = allTimeData.score + score;
+      const newTotalQuestions = allTimeData.totalQuestions + totalQuestions;
+      const newQuizCount = allTimeData.quizCount + 1;
+      
+      batch.update(allTimeRankingRef, {
+        score: newScore,
+        totalQuestions: newTotalQuestions,
+        averageScore: (newScore / newTotalQuestions) * 100,
+        quizCount: newQuizCount,
+        lastUpdated: serverTimestamp()
+      });
+    } else {
+      batch.set(allTimeRankingRef, {
+        period: 'allTime',
+        periodValue: 'all',
+        category,
+        userId,
+        username,
+        score,
+        totalQuestions,
+        averageScore,
+        quizCount: 1,
+        lastUpdated: serverTimestamp()
+      });
+    }
+    
+    // Update user stats
+    const currentStats = userData.stats || {};
+    const categoryStats = currentStats.categories || {};
+    const currentCategoryStats = categoryStats[category] || { 
+      totalQuizzes: 0, 
+      totalCorrectAnswers: 0, 
+      averageScore: 0 
+    };
+    
+    const newCategoryQuizzes = currentCategoryStats.totalQuizzes + 1;
+    const newCategoryCorrect = currentCategoryStats.totalCorrectAnswers + score;
+    const newCategoryAverage = (newCategoryCorrect / (newCategoryQuizzes * totalQuestions)) * 100;
+    
+    batch.update(userRef, {
+      [`stats.categories.${category}`]: {
+        totalQuizzes: newCategoryQuizzes,
+        totalCorrectAnswers: newCategoryCorrect,
+        averageScore: newCategoryAverage
+      },
+      'stats.allTime.totalQuizzes': (currentStats.allTime?.totalQuizzes || 0) + 1,
+      'stats.allTime.totalCorrectAnswers': (currentStats.allTime?.totalCorrectAnswers || 0) + score,
+      'stats.allTime.lastUpdated': serverTimestamp()
+    });
+    
+    await batch.commit();
+    
+    // Trigger leaderboard cache updates
+    await Promise.all([
+      updateLeaderboardCache('daily', dailyKey, category),
+      updateLeaderboardCache('monthly', monthlyKey, category),
+      updateLeaderboardCache('allTime', 'all', category)
+    ]);
+    
+  } catch (error) {
+    console.error('Error updating rankings:', error);
+    throw error;
+  }
+};
+
+/**
+ * Update leaderboard cache for a specific period and category
+ */
+export const updateLeaderboardCache = async (
+  period: 'daily' | 'monthly' | 'allTime',
+  periodValue: string,
+  category: string
+) => {
+  try {
+    // Query top 100 players by score
+    const rankingsQuery = query(
+      collection(firestore, 'rankings'),
+      where('period', '==', period),
+      where('periodValue', '==', periodValue),
+      where('category', '==', category),
+      orderBy('score', 'desc'),
+      orderBy('averageScore', 'desc'),
+      limit(100)
+    );
+    
+    const snapshot = await getDocs(rankingsQuery);
+    
+    const topPlayers: LeaderboardPlayer[] = snapshot.docs.map((doc, index) => {
+      const data = doc.data();
+      return {
+        userId: data.userId,
+        username: data.username,
+        score: data.score,
+        totalQuestions: data.totalQuestions,
+        averageScore: data.averageScore,
+        quizCount: data.quizCount,
+        rank: index + 1
+      };
+    });
+    
+    // Count total players for this period/category
+    const countQuery = query(
+      collection(firestore, 'rankings'),
+      where('period', '==', period),
+      where('periodValue', '==', periodValue),
+      where('category', '==', category)
+    );
+    
+    const countSnapshot = await getDocs(countQuery);
+    const totalPlayers = countSnapshot.size;
+    
+    // Update cache
+    const cacheId = `${period}_${periodValue}_${category}`;
+    await setDoc(doc(firestore, 'leaderboardCache', cacheId), {
+      period,
+      periodValue,
+      category,
+      lastUpdated: serverTimestamp(),
+      topPlayers,
+      totalPlayers
+    });
+    
+  } catch (error) {
+    console.error('Error updating leaderboard cache:', error);
+  }
+};
+
+/**
+ * Get leaderboard data from cache
+ */
+export const getLeaderboardData = async (
+  period: 'daily' | 'monthly' | 'allTime',
+  periodValue: string,
+  category: string
+): Promise<LeaderboardCache | null> => {
+  try {
+    const cacheId = `${period}_${periodValue}_${category}`;
+    const cacheDoc = await getDoc(doc(firestore, 'leaderboardCache', cacheId));
+    
+    if (cacheDoc.exists()) {
+      const data = cacheDoc.data();
+      return {
+        ...data,
+        lastUpdated: data.lastUpdated?.toDate() || new Date()
+      } as LeaderboardCache;
+    }
+    
+    // If cache doesn't exist, try to create it
+    await updateLeaderboardCache(period, periodValue, category);
+    
+    // Try to get it again
+    const updatedCacheDoc = await getDoc(doc(firestore, 'leaderboardCache', cacheId));
+    if (updatedCacheDoc.exists()) {
+      const data = updatedCacheDoc.data();
+      return {
+        ...data,
+        lastUpdated: data.lastUpdated?.toDate() || new Date()
+      } as LeaderboardCache;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting leaderboard data:', error);
+    return null;
+  }
+};
+
+/**
+ * Get user's rank for a specific period and category
+ */
+export const getUserRank = async (
+  userId: string,
+  period: 'daily' | 'monthly' | 'allTime',
+  periodValue: string,
+  category: string
+): Promise<{ rank: number; totalPlayers: number; score: number; averageScore: number } | null> => {
+  try {
+    // First check if user has a ranking document
+    const rankingId = `${period}_${periodValue}_${category}_${userId}`;
+    const userRankingDoc = await getDoc(doc(firestore, 'rankings', rankingId));
+    
+    if (!userRankingDoc.exists()) {
+      return null;
+    }
+    
+    const userData = userRankingDoc.data();
+    
+    // Count how many players have a higher score
+    const betterPlayersQuery = query(
+      collection(firestore, 'rankings'),
+      where('period', '==', period),
+      where('periodValue', '==', periodValue),
+      where('category', '==', category),
+      where('score', '>', userData.score)
+    );
+    
+    const betterPlayersSnapshot = await getDocs(betterPlayersQuery);
+    const rank = betterPlayersSnapshot.size + 1;
+    
+    // Get total players
+    const allPlayersQuery = query(
+      collection(firestore, 'rankings'),
+      where('period', '==', period),
+      where('periodValue', '==', periodValue),
+      where('category', '==', category)
+    );
+    
+    const allPlayersSnapshot = await getDocs(allPlayersQuery);
+    const totalPlayers = allPlayersSnapshot.size;
+    
+    return {
+      rank,
+      totalPlayers,
+      score: userData.score,
+      averageScore: userData.averageScore
+    };
+  } catch (error) {
+    console.error('Error getting user rank:', error);
+    return null;
+  }
+};
+
+/**
+ * Get available categories from the anime collection
+ */
+export const getAvailableCategories = async (): Promise<Array<{ id: string; title: string }>> => {
+  try {
+    const categories = [{ id: 'all', title: 'All Anime' }];
+    
+    const animesSnapshot = await getDocs(collection(firestore, 'animes'));
+    animesSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.id && data.title) {
+        categories.push({
+          id: data.id.toString(),
+          title: data.title
+        });
+      }
+    });
+    
+    // Sort by title, keeping "All Anime" first
+    return [
+      categories[0],
+      ...categories.slice(1).sort((a, b) => a.title.localeCompare(b.title))
+    ];
+  } catch (error) {
+    console.error('Error getting categories:', error);
+    return [{ id: 'all', title: 'All Anime' }];
+  }
+};
+
+// Import the getUTCDateString function from quizUtils
+import { getUTCDateString } from './quizUtils';
+
+END OF rankingUtils.ts>
 
 theme.ts<
 

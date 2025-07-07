@@ -27,6 +27,7 @@ import { getMonthString } from '../utils/rankingUtils';
 
 interface UserStats {
   username: string;
+  displayUsername?: string; // New field for display purposes
   email: string;
   totalQuizzes: number;
   totalCorrectAnswers: number;
@@ -109,6 +110,12 @@ const ProfileScreen: React.FC = () => {
     return `${Math.floor(diffDays / 365)} years`;
   };
 
+  // Get display username (use displayUsername if available, otherwise fall back to username)
+  const getDisplayUsername = (): string => {
+    if (!userStats) return 'Anonymous';
+    return userStats.displayUsername || userStats.username || 'Anonymous';
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -134,10 +141,10 @@ const ProfileScreen: React.FC = () => {
         <Surface style={styles.headerCard} elevation={2}>
           <Avatar.Text
             size={80}
-            label={userStats?.username?.substring(0, 2).toUpperCase() || 'AN'}
+            label={getDisplayUsername().substring(0, 2).toUpperCase()}
             style={{ backgroundColor: theme.colors.primary }}
           />
-          <Text style={styles.username}>{userStats?.username || 'Anonymous'}</Text>
+          <Text style={styles.username}>{getDisplayUsername()}</Text>
           <Text style={styles.email}>{user?.email}</Text>
           <Text style={styles.memberDuration}>
             <MaterialCommunityIcons name="clock-outline" size={14} /> Member for {getMembershipDuration()}
@@ -213,7 +220,7 @@ const ProfileScreen: React.FC = () => {
                     </Text>
                     <View style={styles.categoryStats}>
                       <Text style={styles.categoryQuizzes}>{stats.totalQuizzes} quizzes</Text>
-  <Text style={styles.categoryScore}>
+                      <Text style={styles.categoryScore}>
                         {stats.averageScore ? stats.averageScore.toFixed(1) : '0.0'}%
                       </Text>
                     </View>
