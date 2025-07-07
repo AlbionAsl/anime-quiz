@@ -1,3 +1,293 @@
+AnimeCard.tsx<
+
+// src/components/AnimeCard.tsx
+
+import React from 'react';
+import {
+  StyleSheet,
+  Image,
+  View,
+  Dimensions,
+  TouchableOpacity,
+} from 'react-native';
+import {
+  Card,
+  Text,
+  useTheme,
+  IconButton,
+} from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+interface AnimeCardProps {
+  anime: {
+    id: number | null;
+    title: string;
+    coverImage: string | { uri: string };
+  };
+  onPress: () => void;
+  hasPlayedToday?: boolean;
+  todayScore?: number;
+  totalQuestions?: number;
+}
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 380;
+const cardWidth = isSmallScreen 
+  ? (width - 32) / 2 - 8 
+  : (width - 48) / 3 - 8;
+
+const AnimeCard: React.FC<AnimeCardProps> = ({
+  anime,
+  onPress,
+  hasPlayedToday,
+  todayScore,
+  totalQuestions = 10,
+}) => {
+  const theme = useTheme();
+
+  const imageSource = typeof anime.coverImage === 'string' 
+    ? { uri: anime.coverImage }
+    : anime.coverImage;
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <Card style={[styles.card, { width: cardWidth }]}>
+        <View style={styles.imageContainer}>
+          <Image
+            source={imageSource}
+            style={styles.image}
+            resizeMode="cover"
+          />
+          
+          {hasPlayedToday && (
+            <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+              <MaterialCommunityIcons
+                name="check-circle"
+                size={40}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.scoreText}>
+                {todayScore}/{totalQuestions}
+              </Text>
+              <Text style={styles.playedText}>Played Today</Text>
+            </View>
+          )}
+          
+          {anime.id === null && (
+            <View style={[styles.allBadge, { backgroundColor: theme.colors.primary }]}>
+              <MaterialCommunityIcons name="infinity" size={20} color="white" />
+            </View>
+          )}
+        </View>
+        
+        <Card.Content style={styles.content}>
+          <Text 
+            style={[styles.title, { color: theme.colors.onSurface }]} 
+            numberOfLines={2}
+            ellipsizeMode="tail"
+          >
+            {anime.title}
+          </Text>
+        </Card.Content>
+      </Card>
+    </TouchableOpacity>
+  );
+};
+
+const styles = StyleSheet.create({
+  card: {
+    marginVertical: 4,
+    elevation: 3,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  imageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: cardWidth * 1.4,
+  },
+  image: {
+    width: '100%',
+    height: '100%',
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scoreText: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  playedText: {
+    color: 'white',
+    fontSize: 12,
+    marginTop: 4,
+    opacity: 0.9,
+  },
+  allBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    borderRadius: 20,
+    padding: 8,
+  },
+  content: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    minHeight: 60,
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: isSmallScreen ? 13 : 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+});
+
+export default AnimeCard;
+
+END OF AnimeCard.tsx>
+
+DailyQuizStatus.tsx<
+
+// src/components/DailyQuizStatus.tsx
+
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { Surface, Text, useTheme, ProgressBar } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+interface DailyAttempt {
+  category: string;
+  score: number;
+  totalQuestions: number;
+}
+
+interface DailyQuizStatusProps {
+  attempts: DailyAttempt[];
+  timeUntilReset?: {
+    hours: number;
+    minutes: number;
+    seconds: number;
+  };
+}
+
+const DailyQuizStatus: React.FC<DailyQuizStatusProps> = ({ attempts, timeUntilReset }) => {
+  const theme = useTheme();
+
+  if (attempts.length === 0 && !timeUntilReset) {
+    return null;
+  }
+
+  const totalScore = attempts.reduce((sum, attempt) => sum + attempt.score, 0);
+  const totalPossible = attempts.reduce((sum, attempt) => sum + attempt.totalQuestions, 0);
+  const percentage = totalPossible > 0 ? totalScore / totalPossible : 0;
+
+  return (
+    <Surface style={styles.container} elevation={1}>
+      <View style={styles.header}>
+        <MaterialCommunityIcons
+          name="calendar-today"
+          size={20}
+          color={theme.colors.primary}
+        />
+        <Text style={styles.title}>Today's Progress</Text>
+      </View>
+      
+      {attempts.length > 0 && (
+        <>
+          <View style={styles.content}>
+            <Text style={styles.scoreText}>
+              {totalScore} / {totalPossible} correct
+            </Text>
+            <Text style={styles.categoryText}>
+              {attempts.length} quiz{attempts.length !== 1 ? 'zes' : ''} completed
+            </Text>
+          </View>
+          
+          <ProgressBar
+            progress={percentage}
+            color={theme.colors.primary}
+            style={styles.progressBar}
+          />
+        </>
+      )}
+      
+      {timeUntilReset && (
+        <View style={styles.resetTimer}>
+          <MaterialCommunityIcons
+            name="clock-outline"
+            size={16}
+            color={theme.colors.onSurfaceVariant}
+          />
+          <Text style={styles.resetText}>
+            Resets in {timeUntilReset.hours}h {timeUntilReset.minutes}m {timeUntilReset.seconds}s
+          </Text>
+        </View>
+      )}
+    </Surface>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  content: {
+    marginBottom: 12,
+  },
+  scoreText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  categoryText: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  progressBar: {
+    height: 8,
+    borderRadius: 4,
+  },
+  resetTimer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  resetText: {
+    fontSize: 14,
+    marginLeft: 6,
+    opacity: 0.7,
+  },
+});
+
+export default DailyQuizStatus;
+
+END OF DailyQuizStatus.tsx>
+
 AppNavigator.tsx<
 
 // src/navigation/AppNavigator.tsx
@@ -15,13 +305,13 @@ import { auth, firestore } from '../utils/firebase';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import UserCreationScreen from '../screens/UserCreationScreen';
-import HomeScreen from '../screens/HomeScreen'; // You'll need to create this
+import MainTabNavigator from './MainTabNavigator';
 
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   UserCreation: undefined;
-  Home: undefined;
+  MainTabs: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -97,7 +387,7 @@ const AppNavigator: React.FC = () => {
       >
         {user ? (
           hasProfile ? (
-            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           ) : (
             <Stack.Screen name="UserCreation" component={UserCreationScreen} />
           )
@@ -124,6 +414,127 @@ export default AppNavigator;
 
 END OF AppNavigator.tsx>
 
+MainTabNavigator.tsx<
+
+// src/navigation/MainTabNavigator.tsx
+
+import React from 'react';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useTheme } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+// Import screens
+import PlayNavigator from './PlayNavigator';
+import RankingsScreen from '../screens/RankingsScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+
+export type MainTabParamList = {
+  Play: undefined;
+  Rankings: undefined;
+  Profile: undefined;
+};
+
+const Tab = createBottomTabNavigator<MainTabParamList>();
+
+const MainTabNavigator: React.FC = () => {
+  const theme = useTheme();
+
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.onSurfaceVariant,
+        tabBarStyle: {
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.outline,
+          borderTopWidth: 1,
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '500',
+        },
+      }}
+    >
+      <Tab.Screen
+        name="Play"
+        component={PlayNavigator}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="gamepad-variant" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Rankings"
+        component={RankingsScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="trophy" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="account" size={size} color={color} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+};
+
+export default MainTabNavigator;
+
+END OF MainTabNavigator.tsx>
+
+PlayNavigator.tsx<
+
+// src/navigation/PlayNavigator.tsx
+
+import React from 'react';
+import { createStackNavigator } from '@react-navigation/stack';
+import PlayScreen from '../screens/PlayScreen';
+import QuizScreen from '../screens/QuizScreen';
+
+export type PlayStackParamList = {
+  PlayHome: {
+    refresh?: boolean;
+    completedCategory?: string;
+    score?: number;
+    totalQuestions?: number;
+  } | undefined;
+  Quiz: {
+    animeId: number | null;
+    animeName: string;
+  };
+};
+
+const Stack = createStackNavigator<PlayStackParamList>();
+
+const PlayNavigator: React.FC = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="PlayHome" component={PlayScreen} />
+      <Stack.Screen name="Quiz" component={QuizScreen} />
+    </Stack.Navigator>
+  );
+};
+
+export default PlayNavigator;
+
+END OF PlayNavigator.tsx>
+
 types.ts<
 
 // src/navigation/types.ts
@@ -132,98 +543,889 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   UserCreation: undefined;
-  Home: undefined;
+  MainTabs: undefined;
+};
+
+export type MainTabParamList = {
+  Play: undefined;
+  Rankings: undefined;
+  Profile: undefined;
+};
+
+export type PlayStackParamList = {
+  PlayHome: undefined;
+  Quiz: {
+    animeId: number | null;
+    animeName: string;
+  };
 };
 
 END OF types.ts>
 
-HomeScreen.tsx<
+PlayScreen.tsx<
 
-// src/screens/HomeScreen.tsx
+// src/screens/PlayScreen.tsx
 
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Button, Text, Surface, useTheme } from 'react-native-paper';
-import { signOut } from 'firebase/auth';
-import { auth } from '../utils/firebase';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  SafeAreaView,
+  Dimensions,
+  RefreshControl,
+} from 'react-native';
+import {
+  Text,
+  Surface,
+  useTheme,
+  ActivityIndicator,
+  Snackbar,
+} from 'react-native-paper';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { firestore, auth } from '../utils/firebase';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
+import { PlayStackParamList } from '../navigation/PlayNavigator';
+import AnimeCard from '../components/AnimeCard';
+import DailyQuizStatus from '../components/DailyQuizStatus';
+import { getUTCDateString, getTimeUntilReset } from '../utils/quizUtils';
 
-type HomeScreenProps = {
-  navigation?: any;
-};
+type PlayScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'PlayHome'>;
 
-const HomeScreen: React.FC<HomeScreenProps> = () => {
+interface AnimeItem {
+  id: number | null;
+  title: string;
+  coverImage: string | { uri: string };
+  popularity?: number;
+  hasPlayedToday?: boolean;
+  todayScore?: number;
+}
+
+interface DailyAttempt {
+  userId: string;
+  date: string;
+  category: string;
+  score: number;
+  totalQuestions: number;
+  completedAt: Date;
+}
+
+const { width } = Dimensions.get('window');
+const isSmallScreen = width < 380;
+
+type PlayScreenProps = StackScreenProps<PlayStackParamList, 'PlayHome'>;
+
+const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   const theme = useTheme();
-  const user = auth.currentUser;
+  const navigation = useNavigation<PlayScreenNavigationProp>();
+  const [animeList, setAnimeList] = useState<AnimeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dailyAttempts, setDailyAttempts] = useState<Record<string, DailyAttempt>>({});
+  const [timeUntilReset, setTimeUntilReset] = useState(getTimeUntilReset());
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const handleSignOut = async () => {
+  // Handle navigation params and refresh
+  useFocusEffect(
+    React.useCallback(() => {
+      if (route.params?.refresh) {
+        checkDailyAttempts();
+        if (route.params.completedCategory && route.params.score !== undefined) {
+          setSuccessMessage(`Quiz completed! Score: ${route.params.score}/${route.params.totalQuestions || 10}`);
+          setTimeout(() => setSuccessMessage(null), 3000);
+        }
+        // Clear params to prevent showing message again
+        navigation.setParams({ 
+          refresh: undefined, 
+          completedCategory: undefined, 
+          score: undefined,
+          totalQuestions: undefined 
+        } as any);
+      }
+    }, [route.params])
+  );
+
+  // Update timer every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeUntilReset(getTimeUntilReset());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkDailyAttempts = async () => {
     try {
-      await signOut(auth);
-    } catch (error: any) {
-      console.error('Sign out error:', error);
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const todayDate = getUTCDateString();
+      const attemptsQuery = query(
+        collection(firestore, 'dailyQuizzes'),
+        where('userId', '==', user.uid),
+        where('date', '==', todayDate)
+      );
+
+      const snapshot = await getDocs(attemptsQuery);
+      const attempts: Record<string, DailyAttempt> = {};
+
+      snapshot.forEach((doc) => {
+        const data = doc.data() as DailyAttempt;
+        attempts[data.category] = data;
+      });
+
+      setDailyAttempts(attempts);
+    } catch (error) {
+      console.error('Error checking daily attempts:', error);
     }
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: theme.colors.background,
-      padding: 24,
-      justifyContent: 'center',
-    },
-    surface: {
-      padding: 24,
-      borderRadius: 16,
-      elevation: 4,
-      alignItems: 'center',
-    },
-    title: {
-      fontSize: 28,
-      fontWeight: 'bold',
-      color: theme.colors.primary,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    subtitle: {
-      fontSize: 16,
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 24,
-      textAlign: 'center',
-    },
-    email: {
-      fontSize: 14,
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 32,
-      textAlign: 'center',
-    },
-    signOutButton: {
-      paddingVertical: 8,
-      paddingHorizontal: 24,
-      borderRadius: 12,
-    },
-  });
+  const fetchAnimes = async () => {
+    try {
+      // First add the "All" category
+      const allCategory: AnimeItem = {
+        id: null,
+        title: 'All Anime',
+        coverImage: 'https://via.placeholder.com/300x450/6C5CE7/FFFFFF?text=ALL+ANIME',
+      };
+
+      // Fetch anime from Firestore
+      const animesSnapshot = await getDocs(collection(firestore, 'animes'));
+      const animes: AnimeItem[] = [allCategory];
+
+      animesSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.id && data.title && data.coverImage) {
+          animes.push({
+            id: data.id,
+            title: data.title,
+            coverImage: data.coverImage,
+            popularity: data.popularity || 0,
+          });
+        }
+      });
+
+      // Sort by popularity (keeping "All" first)
+      const sortedAnimes = [
+        allCategory,
+        ...animes.slice(1).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)),
+      ];
+
+      setAnimeList(sortedAnimes);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching anime:', error);
+      setError('Failed to load anime. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAnimes();
+    checkDailyAttempts();
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchAnimes(), checkDailyAttempts()]);
+  };
+
+  const handleAnimePress = (animeId: number | null, animeName: string) => {
+    const category = animeId === null ? 'all' : animeId.toString();
+    const attempt = dailyAttempts[category];
+
+    if (attempt) {
+      // Show score if already played today
+      setError(`You already played ${animeName} today! Score: ${attempt.score}/${attempt.totalQuestions}`);
+      return;
+    }
+
+    navigation.navigate('Quiz', {
+      animeId,
+      animeName,
+    });
+  };
+
+  const renderAnimeCard = ({ item }: { item: AnimeItem }) => {
+    const category = item.id === null ? 'all' : item.id.toString();
+    const attempt = dailyAttempts[category];
+
+    return (
+      <View style={styles.cardWrapper}>
+        <AnimeCard
+          anime={item}
+          onPress={() => handleAnimePress(item.id, item.title)}
+          hasPlayedToday={!!attempt}
+          todayScore={attempt?.score}
+          totalQuestions={attempt?.totalQuestions}
+        />
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading anime...</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <Surface style={styles.surface}>
-        <Text style={styles.title}>Welcome!</Text>
-        <Text style={styles.subtitle}>You're successfully logged in</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-        
-        <Button
-          mode="contained"
-          onPress={handleSignOut}
-          style={styles.signOutButton}
-        >
-          Sign Out
-        </Button>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Surface style={styles.header} elevation={2}>
+        <Text style={styles.title}>Anime Quiz</Text>
+        <Text style={styles.subtitle}>Choose an anime to start your daily quiz</Text>
       </Surface>
-    </View>
+
+      <DailyQuizStatus 
+        attempts={Object.values(dailyAttempts)} 
+        timeUntilReset={timeUntilReset}
+      />
+
+      <FlatList
+        data={animeList}
+        renderItem={renderAnimeCard}
+        keyExtractor={(item) => item.id?.toString() || 'all'}
+        numColumns={isSmallScreen ? 2 : 3}
+        columnWrapperStyle={isSmallScreen ? styles.row : styles.rowLarge}
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No anime available</Text>
+          </View>
+        }
+      />
+
+      <Snackbar
+        visible={!!error}
+        onDismiss={() => setError(null)}
+        duration={3000}
+        style={{ backgroundColor: theme.colors.error }}
+      >
+        {error}
+      </Snackbar>
+
+      <Snackbar
+        visible={!!successMessage}
+        onDismiss={() => setSuccessMessage(null)}
+        duration={3000}
+        style={{ backgroundColor: theme.colors.primary }}
+      >
+        {successMessage}
+      </Snackbar>
+    </SafeAreaView>
   );
 };
 
-export default HomeScreen;
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  listContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 20,
+  },
+  row: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  rowLarge: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  cardWrapper: {
+    flex: 1,
+    padding: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    opacity: 0.6,
+  },
+});
 
-END OF HomeScreen.tsx>
+export default PlayScreen;
+
+END OF PlayScreen.tsx>
+
+QuizScreen.tsx<
+
+// src/screens/QuizScreen.tsx
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  Dimensions,
+  BackHandler,
+} from 'react-native';
+import {
+  Text,
+  Button,
+  Surface,
+  useTheme,
+  ActivityIndicator,
+  ProgressBar,
+  Dialog,
+  Portal,
+  IconButton,
+} from 'react-native-paper';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { PlayStackParamList } from '../navigation/PlayNavigator';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
+import { firestore, auth } from '../utils/firebase';
+import { getDailyQuestions, getUTCDateString } from '../utils/quizUtils';
+
+type QuizScreenRouteProp = RouteProp<PlayStackParamList, 'Quiz'>;
+type QuizScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Quiz'>;
+
+interface Question {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  animeId?: number;
+  animeName?: string;
+}
+
+interface Answer {
+  questionId: string;
+  selectedOption: number;
+  isCorrect: boolean;
+}
+
+const { width, height } = Dimensions.get('window');
+const isSmallScreen = width < 380;
+
+const QuizScreen: React.FC = () => {
+  const theme = useTheme();
+  const route = useRoute<QuizScreenRouteProp>();
+  const navigation = useNavigation<QuizScreenNavigationProp>();
+  const { animeId, animeName } = route.params;
+
+  // State declarations
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [showExitDialog, setShowExitDialog] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchQuestions();
+
+    // Handle hardware back button
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!showResults) {
+        setShowExitDialog(true);
+        return true;
+      }
+      return false;
+    });
+
+    return () => backHandler.remove();
+  }, [showResults]);
+
+  const fetchQuestions = async () => {
+    try {
+      setLoading(true);
+      
+      // Use the new getDailyQuestions utility for consistent daily questions
+      const dailyQuestions = await getDailyQuestions(animeId, 10);
+
+      if (dailyQuestions.length === 0) {
+        setError('No questions available for this category');
+        setLoading(false);
+        return;
+      }
+
+      setQuestions(dailyQuestions);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      setError('Failed to load questions. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  const handleSelectOption = (optionIndex: number) => {
+    if (selectedOption !== null || showFeedback) return;
+
+    setSelectedOption(optionIndex);
+    setShowFeedback(true);
+
+    const currentQuestion = questions[currentQuestionIndex];
+    const isCorrect = optionIndex === currentQuestion.correctAnswer;
+
+    // Record the answer
+    const newAnswer: Answer = {
+      questionId: currentQuestion.id,
+      selectedOption: optionIndex,
+      isCorrect,
+    };
+
+    const updatedAnswers = [...answers, newAnswer];
+    setAnswers(updatedAnswers);
+
+    // Auto-advance after showing feedback
+    setTimeout(() => {
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex(currentQuestionIndex + 1);
+        setSelectedOption(null);
+        setShowFeedback(false);
+      } else {
+        // Last question - submit quiz
+        submitQuiz(updatedAnswers);
+      }
+    }, 1500); // Show feedback for 1.5 seconds
+  };
+
+  const submitQuiz = async (finalAnswers: Answer[]) => {
+    setSubmitting(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('User not authenticated');
+
+      const score = finalAnswers.filter(a => a.isCorrect).length;
+      
+      const category = animeId === null ? 'all' : animeId.toString();
+      const todayDate = getUTCDateString();
+
+      // Save quiz attempt
+      await addDoc(collection(firestore, 'dailyQuizzes'), {
+        userId: user.uid,
+        date: todayDate,
+        category,
+        animeName,
+        score,
+        totalQuestions: questions.length,
+        completedAt: new Date(),
+        answers: finalAnswers,
+      });
+
+      // Update user statistics
+      const userRef = doc(firestore, 'users', user.uid);
+      await updateDoc(userRef, {
+        totalQuizzes: increment(1),
+        totalCorrectAnswers: increment(score),
+        [`categoryScores.${category}`]: increment(score),
+      });
+
+      setShowResults(true);
+      
+    } catch (error) {
+      console.error('Error submitting quiz:', error);
+      setError('Failed to submit quiz. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleExit = () => {
+    setShowExitDialog(false);
+    navigation.goBack();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading questions...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <Button mode="contained" onPress={() => navigation.goBack()}>
+          Go Back
+        </Button>
+      </View>
+    );
+  }
+
+  if (showResults) {
+    const score = answers.filter(a => a.isCorrect).length;
+
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.resultsWrapper}>
+          <Surface style={styles.resultsContainer} elevation={2}>
+            <Text style={styles.resultTitle}>Quiz Complete!</Text>
+            <Text style={styles.categoryText}>{animeName}</Text>
+            
+            <View style={styles.scoreCircle}>
+              <Text style={styles.scoreNumber}>{score}</Text>
+              <Text style={styles.scoreDivider}>/</Text>
+              <Text style={styles.scoreTotal}>10</Text>
+            </View>
+            
+            <Button
+              mode="contained"
+              onPress={() => {
+                const score = answers.filter(a => a.isCorrect).length;
+                const category = animeId === null ? 'all' : animeId.toString();
+                navigation.navigate('PlayHome', { 
+                  refresh: true,
+                  completedCategory: category,
+                  score: score,
+                  totalQuestions: 10
+                });
+              }}
+              style={styles.finishButton}
+            >
+              Finish
+            </Button>
+          </Surface>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const currentQuestion = questions[currentQuestionIndex];
+  const progress = (currentQuestionIndex + 1) / questions.length;
+
+  if (submitting) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Submitting quiz...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.header}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={() => setShowExitDialog(true)}
+        />
+        <Text style={styles.questionCounter}>
+          Question {currentQuestionIndex + 1} of {questions.length}
+        </Text>
+        <View style={{ width: 48 }} />
+      </View>
+
+      <ProgressBar progress={progress} color={theme.colors.primary} style={styles.mainProgressBar} />
+
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Surface style={styles.questionCard} elevation={2}>
+          <Text style={[styles.questionText, isSmallScreen && styles.questionTextSmall]}>
+            {currentQuestion.question}
+          </Text>
+        </Surface>
+
+        <View style={styles.optionsContainer}>
+          {currentQuestion.options.map((option, index) => {
+            const isSelected = selectedOption === index;
+            const isCorrect = index === currentQuestion.correctAnswer;
+            const showCorrect = showFeedback && isCorrect;
+            const showIncorrect = showFeedback && isSelected && !isCorrect;
+
+            return (
+              <Surface
+                key={index}
+                style={[
+                  styles.optionCard,
+                  showCorrect && styles.correctOption,
+                  showIncorrect && styles.incorrectOption,
+                ]}
+                elevation={1}
+              >
+                <Button
+                  mode="text"
+                  onPress={() => handleSelectOption(index)}
+                  style={styles.optionButton}
+                  labelStyle={[
+                    styles.optionText,
+                    (showCorrect || showIncorrect) && styles.feedbackOptionText,
+                    isSmallScreen && styles.optionTextSmall,
+                  ]}
+                  contentStyle={styles.optionContent}
+                  disabled={showFeedback || submitting}
+                >
+                  {String.fromCharCode(65 + index)}. {option}
+                </Button>
+              </Surface>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <Portal>
+        <Dialog visible={showExitDialog} onDismiss={() => setShowExitDialog(false)}>
+          <Dialog.Title>Exit Quiz?</Dialog.Title>
+          <Dialog.Content>
+            <Text>Are you sure you want to exit? Your progress will be lost.</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowExitDialog(false)}>Cancel</Button>
+            <Button onPress={handleExit}>Exit</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  questionCounter: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  mainProgressBar: {
+    height: 6,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 3,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  questionCard: {
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 24,
+    minHeight: 120,
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: '500',
+  },
+  questionTextSmall: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  optionsContainer: {
+    gap: 12,
+  },
+  optionCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  correctOption: {
+    borderColor: '#4CAF50',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  incorrectOption: {
+    borderColor: '#F44336',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+  },
+  optionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 0,
+  },
+  optionContent: {
+    height: 'auto',
+    minHeight: 60,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 16,
+  },
+  optionText: {
+    fontSize: 16,
+    textAlign: 'left',
+    flex: 1,
+    lineHeight: 22,
+  },
+  optionTextSmall: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  feedbackOptionText: {
+    fontWeight: '600',
+  },
+  resultsWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  resultsContainer: {
+    padding: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+  },
+  resultTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  categoryText: {
+    fontSize: 18,
+    opacity: 0.8,
+    marginBottom: 24,
+  },
+  scoreCircle: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 8,
+  },
+  scoreNumber: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#6C5CE7', // Primary color
+  },
+  scoreDivider: {
+    fontSize: 36,
+    marginHorizontal: 4,
+    opacity: 0.6,
+  },
+  scoreTotal: {
+    fontSize: 36,
+    opacity: 0.8,
+  },
+  finishButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 24,
+  },
+});
+
+export default QuizScreen;
+
+END OF QuizScreen.tsx>
+
+RankingsScreen.tsx<
+
+// src/screens/RankingsScreen.tsx
+
+import React from 'react';
+import { View, StyleSheet, SafeAreaView } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
+
+const RankingsScreen: React.FC = () => {
+  const theme = useTheme();
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.content}>
+        <Text style={[styles.title, { color: theme.colors.primary }]}>Rankings</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>Coming Soon</Text>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    opacity: 0.6,
+  },
+});
+
+export default RankingsScreen;
+
+END OF RankingsScreen.tsx>
 
 LoginScreen.tsx<
 
@@ -1114,6 +2316,76 @@ export default UserCreationScreen;
 
 END OF UserCreationScreen.tsx>
 
+ProfileScreen.tsx<
+
+// src/screens/ProfileScreen.tsx
+
+import React from 'react';
+import { View, StyleSheet, SafeAreaView } from 'react-native';
+import { Text, Button, useTheme } from 'react-native-paper';
+import { signOut } from 'firebase/auth';
+import { auth } from '../utils/firebase';
+
+const ProfileScreen: React.FC = () => {
+  const theme = useTheme();
+  const user = auth.currentUser;
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.content}>
+        <Text style={[styles.title, { color: theme.colors.primary }]}>Profile</Text>
+        <Text style={[styles.email, { color: theme.colors.onSurfaceVariant }]}>{user?.email}</Text>
+        <Button
+          mode="contained"
+          onPress={handleSignOut}
+          style={styles.signOutButton}
+        >
+          Sign Out
+        </Button>
+      </View>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+  email: {
+    fontSize: 16,
+    marginBottom: 32,
+    opacity: 0.8,
+  },
+  signOutButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+});
+
+export default ProfileScreen;
+
+END OF ProfileScreen.tsx>
+
 firebase.ts<
 
 // src/utils/firebase.ts
@@ -1140,6 +2412,226 @@ const auth = getAuth(app);
 export { firestore, auth };
 
 END OF firebase.ts>
+
+quizUtils.ts<
+
+// src/utils/quizUtils.ts
+
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  getDocs,
+  doc,
+  setDoc,
+  getDoc,
+  DocumentData
+} from 'firebase/firestore';
+import { firestore } from './firebase';
+
+interface Question {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  animeId?: number;
+  animeName?: string;
+  random: number;
+}
+
+interface DailyQuestions {
+  date: string;
+  category: string;
+  questions: Question[];
+  generatedAt: Date;
+}
+
+/**
+ * Get the current UTC date in YYYY-MM-DD format
+ */
+export const getUTCDateString = (): string => {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Generate a seed number from a date string and category
+ */
+const generateDailySeed = (dateString: string, category: string): number => {
+  let hash = 0;
+  const str = `${dateString}-${category}`;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash);
+};
+
+/**
+ * Get daily questions for a specific category
+ */
+export const getDailyQuestions = async (
+  animeId: number | null,
+  questionCount: number = 10
+): Promise<Question[]> => {
+  const dateString = getUTCDateString();
+  const category = animeId === null ? 'all' : animeId.toString();
+  const dailyQuestionId = `${dateString}_${category}`;
+
+  try {
+    // First, check if we already have questions for today
+    const dailyQuestionDoc = await getDoc(
+      doc(firestore, 'dailyQuestions', dailyQuestionId)
+    );
+
+    if (dailyQuestionDoc.exists()) {
+      const data = dailyQuestionDoc.data() as DailyQuestions;
+      console.log(`Using cached questions for ${category} on ${dateString}`);
+      return data.questions;
+    }
+
+    // If not, generate new questions for today
+    console.log(`Generating new questions for ${category} on ${dateString}`);
+    const seed = generateDailySeed(dateString, category);
+    
+    // Use modulo to create "buckets" for deterministic selection
+    const bucketSize = 1000;
+    const targetBucket = seed % bucketSize;
+
+    // Fetch questions using the random field for efficient querying
+    let questionsQuery;
+    if (animeId === null) {
+      // For "all" category, fetch from all questions
+      questionsQuery = query(
+        collection(firestore, 'questions'),
+        where('random', '>=', targetBucket),
+        where('random', '<', targetBucket + 100),
+        orderBy('random'),
+        limit(questionCount * 2) // Fetch extra in case we need them
+      );
+    } else {
+      // For specific anime
+      questionsQuery = query(
+        collection(firestore, 'questions'),
+        where('animeId', '==', animeId),
+        where('random', '>=', targetBucket),
+        where('random', '<', targetBucket + 100),
+        orderBy('random'),
+        limit(questionCount * 2)
+      );
+    }
+
+    let snapshot = await getDocs(questionsQuery);
+    let questions: Question[] = [];
+
+    // If we didn't get enough questions in the target bucket, wrap around
+    if (snapshot.size < questionCount) {
+      if (animeId === null) {
+        questionsQuery = query(
+          collection(firestore, 'questions'),
+          orderBy('random'),
+          limit(questionCount * 3)
+        );
+      } else {
+        questionsQuery = query(
+          collection(firestore, 'questions'),
+          where('animeId', '==', animeId),
+          orderBy('random'),
+          limit(questionCount * 3)
+        );
+      }
+      snapshot = await getDocs(questionsQuery);
+    }
+
+    // Convert to Question array
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      questions.push({
+        id: doc.id,
+        question: data.question,
+        options: data.options,
+        correctAnswer: data.correctAnswer,
+        animeId: data.animeId,
+        animeName: data.animeName,
+        random: data.random,
+      });
+    });
+
+    // Use the seed to deterministically select from available questions
+    const selectedQuestions: Question[] = [];
+    const availableIndices = questions.map((_, index) => index);
+    
+    for (let i = 0; i < Math.min(questionCount, questions.length); i++) {
+      const seedForIndex = (seed + i) % availableIndices.length;
+      const selectedIndex = availableIndices[seedForIndex];
+      selectedQuestions.push(questions[selectedIndex]);
+      availableIndices.splice(seedForIndex, 1);
+    }
+
+    // Cache the selected questions for today
+    const dailyQuestionsData: DailyQuestions = {
+      date: dateString,
+      category,
+      questions: selectedQuestions,
+      generatedAt: new Date(),
+    };
+
+    await setDoc(
+      doc(firestore, 'dailyQuestions', dailyQuestionId),
+      dailyQuestionsData
+    );
+
+    return selectedQuestions;
+  } catch (error) {
+    console.error('Error fetching daily questions:', error);
+    throw error;
+  }
+};
+
+/**
+ * Check if the user has already played today (based on UTC time)
+ */
+export const hasPlayedToday = async (
+  userId: string,
+  category: string
+): Promise<boolean> => {
+  const dateString = getUTCDateString();
+  
+  const attemptQuery = query(
+    collection(firestore, 'dailyQuizzes'),
+    where('userId', '==', userId),
+    where('date', '==', dateString),
+    where('category', '==', category)
+  );
+
+  const snapshot = await getDocs(attemptQuery);
+  return !snapshot.empty;
+};
+
+/**
+ * Get time until next UTC midnight
+ */
+export const getTimeUntilReset = (): { hours: number; minutes: number; seconds: number } => {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(0, 0, 0, 0);
+  
+  const diff = tomorrow.getTime() - now.getTime();
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+  
+  return { hours, minutes, seconds };
+};
+
+END OF quizUtils.ts>
 
 theme.ts<
 
@@ -1320,7 +2812,7 @@ import customDarkTheme from './src/themes/theme';
 const App: React.FC = () => {
   return (
     <PaperProvider theme={customDarkTheme}>
-      <StatusBar style="light" backgroundColor={customDarkTheme.colors.surface} />
+      <StatusBar style="light" />
       <AppNavigator />
     </PaperProvider>
   );

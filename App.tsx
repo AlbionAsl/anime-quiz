@@ -9,7 +9,7 @@ import customDarkTheme from './src/themes/theme';
 const App: React.FC = () => {
   return (
     <PaperProvider theme={customDarkTheme}>
-      <StatusBar style="light" backgroundColor={customDarkTheme.colors.surface} />
+      <StatusBar style="light" />
       <AppNavigator />
     </PaperProvider>
   );
