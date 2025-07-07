@@ -13,13 +13,13 @@ import { auth, firestore } from '../utils/firebase';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import UserCreationScreen from '../screens/UserCreationScreen';
-import HomeScreen from '../screens/HomeScreen'; // You'll need to create this
+import MainTabNavigator from './MainTabNavigator';
 
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   UserCreation: undefined;
-  Home: undefined;
+  MainTabs: undefined;
 };
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -95,7 +95,7 @@ const AppNavigator: React.FC = () => {
       >
         {user ? (
           hasProfile ? (
-            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           ) : (
             <Stack.Screen name="UserCreation" component={UserCreationScreen} />
           )
