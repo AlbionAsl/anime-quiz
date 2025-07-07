@@ -29,6 +29,7 @@ const AppNavigator: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
@@ -36,6 +37,7 @@ const AppNavigator: React.FC = () => {
     const authUnsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        setProfileLoading(true);
         
         // Clean up previous profile listener
         if (profileUnsubscribe) {
@@ -48,17 +50,20 @@ const AppNavigator: React.FC = () => {
           userDocRef,
           (docSnap) => {
             setHasProfile(docSnap.exists());
+            setProfileLoading(false);
             setLoading(false);
           },
           (error) => {
             console.error('Error listening to user profile:', error);
             setHasProfile(false);
+            setProfileLoading(false);
             setLoading(false);
           }
         );
       } else {
         setUser(null);
         setHasProfile(false);
+        setProfileLoading(false);
         setLoading(false);
         
         // Clean up profile listener when user signs out
@@ -77,7 +82,7 @@ const AppNavigator: React.FC = () => {
     };
   }, []);
 
-  if (loading) {
+  if (loading || (user && profileLoading)) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
