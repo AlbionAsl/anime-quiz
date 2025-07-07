@@ -7,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native';
 import {
   Button,
@@ -18,8 +17,10 @@ import {
   IconButton,
   Divider,
   ActivityIndicator,
+  Dialog,
+  Portal,
 } from 'react-native-paper';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { auth } from '../utils/firebase';
 
 type LoginScreenProps = {
@@ -33,26 +34,116 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showEmailLogin, setShowEmailLogin] = useState(false);
+  const [showVerificationDialog, setShowVerificationDialog] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorTitle, setErrorTitle] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setErrorTitle('Missing Information');
+      setErrorMessage('Please fill in all fields to continue.');
+      setShowErrorDialog(true);
       return;
     }
 
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Navigation will be handled by the auth state listener
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Check if email is verified
+      if (!userCredential.user.emailVerified) {
+        // Sign out the user if email is not verified
+        await auth.signOut();
+        setShowVerificationDialog(true);
+        setLoading(false);
+        return;
+      }
+      
+      // If email is verified, navigation will be handled by the auth state listener
     } catch (error: any) {
-      Alert.alert('Login Error', error.message);
-    } finally {
       setLoading(false);
+      
+      // Handle specific error cases with user-friendly messages
+      let title = 'Login Failed';
+      let message = 'An error occurred during login. Please try again.';
+      
+      switch (error.code) {
+        case 'auth/invalid-email':
+          title = 'Invalid Email';
+          message = 'The email address is not valid. Please check and try again.';
+          break;
+        case 'auth/user-disabled':
+          title = 'Account Disabled';
+          message = 'This account has been disabled. Please contact support.';
+          break;
+        case 'auth/user-not-found':
+          title = 'Account Not Found';
+          message = 'No account found with this email address. Please check your email or create a new account.';
+          break;
+        case 'auth/wrong-password':
+          title = 'Incorrect Password';
+          message = 'The password is incorrect. Please try again.';
+          break;
+        case 'auth/invalid-credential':
+          title = 'Invalid Credentials';
+          message = 'The email or password is incorrect. Please check and try again.';
+          break;
+        case 'auth/too-many-requests':
+          title = 'Too Many Attempts';
+          message = 'Too many failed login attempts. Please try again later.';
+          break;
+        case 'auth/network-request-failed':
+          title = 'Network Error';
+          message = 'Please check your internet connection and try again.';
+          break;
+        default:
+          if (error.message) {
+            message = error.message;
+          }
+      }
+      
+      setErrorTitle(title);
+      setErrorMessage(message);
+      setShowErrorDialog(true);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendingEmail(true);
+    try {
+      // Sign in again to get the user object
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Send verification email
+      await sendEmailVerification(userCredential.user);
+      
+      // Sign out again
+      await auth.signOut();
+      
+      setErrorTitle('Email Sent');
+      setErrorMessage('Verification email sent successfully! Please check your inbox.');
+      setShowErrorDialog(true);
+    } catch (error: any) {
+      let message = 'Failed to send verification email. Please try again.';
+      
+      if (error.code === 'auth/too-many-requests') {
+        message = 'Too many requests. Please try again later.';
+      }
+      
+      setErrorTitle('Email Not Sent');
+      setErrorMessage(message);
+      setShowErrorDialog(true);
+    } finally {
+      setResendingEmail(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    Alert.alert('Coming Soon', 'Google sign-in will be implemented soon!');
+    setErrorTitle('Coming Soon');
+    setErrorMessage('Google sign-in will be implemented soon!');
+    setShowErrorDialog(true);
   };
 
   const styles = StyleSheet.create({
@@ -160,6 +251,27 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 8,
+    },
+    dialogContent: {
+      paddingTop: 10,
+    },
+    dialogText: {
+      fontSize: 16,
+      lineHeight: 24,
+      marginBottom: 10,
+    },
+    dialogEmail: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: theme.colors.primary,
+      textAlign: 'center',
+      marginVertical: 10,
+    },
+    resendButton: {
+      marginTop: 10,
+    },
+    dialogTitle: {
+      textAlign: 'center',
     },
   });
 
@@ -280,6 +392,58 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
           </View>
         </Surface>
       </ScrollView>
+
+      <Portal>
+        <Dialog 
+          visible={showVerificationDialog} 
+          onDismiss={() => setShowVerificationDialog(false)}
+          dismissable={false}
+        >
+          <Dialog.Title>Email Not Verified</Dialog.Title>
+          <Dialog.Content style={styles.dialogContent}>
+            <Text style={styles.dialogText}>
+              Your email address has not been verified yet.
+            </Text>
+            <Text style={styles.dialogEmail}>{email}</Text>
+            <Text style={styles.dialogText}>
+              Please check your inbox and click the verification link to activate your account.
+            </Text>
+            <Button
+              mode="contained"
+              onPress={handleResendVerification}
+              style={styles.resendButton}
+              disabled={resendingEmail}
+            >
+              {resendingEmail ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color={theme.colors.onPrimary} />
+                  <Text style={{ color: theme.colors.onPrimary }}>Sending...</Text>
+                </View>
+              ) : (
+                'Resend Verification Email'
+              )}
+            </Button>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowVerificationDialog(false)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog
+          visible={showErrorDialog}
+          onDismiss={() => setShowErrorDialog(false)}
+          dismissable={false}
+        >
+          <Dialog.Icon icon="alert-circle" size={48} />
+          <Dialog.Title style={styles.dialogTitle}>{errorTitle}</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogText}>{errorMessage}</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowErrorDialog(false)}>OK</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </KeyboardAvoidingView>
   );
 };
