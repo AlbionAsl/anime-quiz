@@ -104,12 +104,13 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       if (!user) return;
 
       const todayDate = getUTCDateString();
+      
       // Get today's ranked attempts (not practice) for the PlayScreen display
       const attemptsQuery = query(
         collection(firestore, 'dailyQuizzes'),
         where('userId', '==', user.uid),
-        where('date', '==', todayDate),
-        where('isPractice', '!=', true) // Exclude practice attempts
+        where('date', '==', todayDate)
+        // Remove the isPractice filter to get all attempts, then filter manually
       );
 
       const snapshot = await getDocs(attemptsQuery);
@@ -117,12 +118,13 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
 
       snapshot.forEach((doc) => {
         const data = doc.data() as DailyAttempt;
-        // Only include if it's not a practice attempt
+        // Only include ranked attempts (not practice) for PlayScreen display
         if (!data.isPractice) {
           attempts[data.category] = data;
         }
       });
 
+      console.log('Daily attempts found:', attempts); // Debug log
       setDailyAttempts(attempts);
     } catch (error) {
       console.error('Error checking daily attempts:', error);
@@ -248,7 +250,8 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   };
 
   const handleAnimePress = (animeId: number | null, animeName: string) => {
-    // Navigate to CategoryScreen instead of QuizScreen
+    // Always navigate to CategoryScreen - no blocking behavior
+    // The CategoryScreen will handle today's completion status
     navigation.navigate('Category', {
       animeId,
       animeName,

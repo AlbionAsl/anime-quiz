@@ -29,7 +29,8 @@
     "react-native-paper": "^5.14.5",
     "react-native-safe-area-context": "^5.5.1",
     "react-native-screens": "^4.11.1",
-    "react-native-vector-icons": "^10.2.0"
+    "react-native-vector-icons": "^10.2.0",
+    "expo-navigation-bar": "~4.2.7"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
