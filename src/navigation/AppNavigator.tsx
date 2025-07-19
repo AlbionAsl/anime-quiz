@@ -1,4 +1,4 @@
-// src/navigation/AppNavigator.tsx
+// src/navigation/AppNavigator.tsx - OPTIMIZED VERSION
 
 import React, { useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
@@ -25,7 +25,7 @@ export type RootStackParamList = {
 
 const Stack = createStackNavigator<RootStackParamList>();
 
-// Email Verification Screen Component
+// OPTIMIZED: Email Verification Screen with consistent theming
 const EmailVerificationScreen: React.FC<{ user: User }> = ({ user }) => {
   const theme = useTheme();
   const [resending, setResending] = useState(false);
@@ -36,7 +36,6 @@ const EmailVerificationScreen: React.FC<{ user: User }> = ({ user }) => {
     try {
       await reload(user);
       if (user.emailVerified) {
-        // User is verified, the auth state listener will handle navigation
         auth.currentUser?.reload();
       }
     } catch (error) {
@@ -73,7 +72,9 @@ const EmailVerificationScreen: React.FC<{ user: User }> = ({ user }) => {
         <Text style={styles.subtitle}>
           We've sent a verification email to:
         </Text>
-        <Text style={styles.email}>{user.email}</Text>
+        <Text style={[styles.email, { color: theme.colors.primary }]}>
+          {user.email}
+        </Text>
         <Text style={styles.description}>
           Please check your inbox and click the verification link to activate your account.
         </Text>
@@ -108,12 +109,27 @@ const EmailVerificationScreen: React.FC<{ user: User }> = ({ user }) => {
   );
 };
 
+// OPTIMIZED: Enhanced loading screen with better theming
+const LoadingScreen: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => {
+  const theme = useTheme();
+  
+  return (
+    <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+      <ActivityIndicator size="large" color={theme.colors.primary} />
+      <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
+        {message}
+      </Text>
+    </View>
+  );
+};
+
 const AppNavigator: React.FC = () => {
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
@@ -122,6 +138,8 @@ const AppNavigator: React.FC = () => {
 
     const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       console.log('🔐 Auth state changed:', currentUser ? `User logged in (${currentUser.uid})` : 'User logged out');
+      
+      setAuthChecked(true); // Mark that we've checked auth at least once
       
       if (currentUser) {
         console.log('📧 Email verified:', currentUser.emailVerified);
@@ -171,7 +189,6 @@ const AppNavigator: React.FC = () => {
         );
       } else {
         console.log('🚪 No user found, showing login screen');
-        console.log('⚠️  Auth persistence may not be working if this appears on app restart');
         setUser(null);
         setHasProfile(false);
         setProfileLoading(false);
@@ -194,21 +211,25 @@ const AppNavigator: React.FC = () => {
     };
   }, []);
 
-  if (loading || (user && profileLoading)) {
-    console.log('Showing loading screen');
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading...</Text>
-      </View>
-    );
+  // OPTIMIZED: Show loading only when actually needed and with consistent theme
+  if (loading || !authChecked || (user && profileLoading)) {
+    let loadingMessage = 'Loading...';
+    if (!authChecked) {
+      loadingMessage = 'Checking authentication...';
+    } else if (user && profileLoading) {
+      loadingMessage = 'Loading profile...';
+    }
+    
+    console.log('Showing loading screen:', loadingMessage);
+    return <LoadingScreen message={loadingMessage} />;
   }
 
   console.log('Rendering navigation with state:', {
     hasUser: !!user,
     hasProfile,
     loading,
-    profileLoading
+    profileLoading,
+    authChecked
   });
 
   return (
@@ -276,7 +297,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
-    color: '#6C5CE7',
   },
   description: {
     fontSize: 14,

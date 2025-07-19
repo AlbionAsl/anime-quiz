@@ -1,6 +1,6 @@
-// src/screens/PlayScreen.tsx
+// src/screens/PlayScreen.tsx - OPTIMIZED VERSION
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -24,6 +24,7 @@ import { PlayStackParamList } from '../navigation/PlayNavigator';
 import AnimeCard from '../components/AnimeCard';
 import DailyQuizStatus from '../components/DailyQuizStatus';
 import { getUTCDateString, getTimeUntilReset } from '../utils/quizUtils';
+import { getAnimeWithQuestionsCached } from '../utils/animeCacheUtils';
 
 type PlayScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'PlayHome'>;
 
@@ -44,7 +45,7 @@ interface DailyAttempt {
   score: number;
   totalQuestions: number;
   completedAt: Date;
-  isPractice?: boolean; // Add this to distinguish practice vs ranked
+  isPractice?: boolean;
 }
 
 interface AnimeWithQuestions {
@@ -52,6 +53,17 @@ interface AnimeWithQuestions {
   animeName: string;
   questionCount: number;
 }
+
+// Cache for anime data to avoid repeated expensive queries
+let animeCache: {
+  data: AnimeItem[] | null;
+  timestamp: number;
+  ttl: number; // 5 minutes cache
+} = {
+  data: null,
+  timestamp: 0,
+  ttl: 5 * 60 * 1000
+};
 
 const { width } = Dimensions.get('window');
 const isSmallScreen = width < 380;
@@ -68,6 +80,9 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   const [dailyAttempts, setDailyAttempts] = useState<Record<string, DailyAttempt>>({});
   const [timeUntilReset, setTimeUntilReset] = useState(getTimeUntilReset());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Memoize today's date to avoid recalculation
+  const todayDate = useMemo(() => getUTCDateString(), []);
 
   // Handle navigation params and refresh
   useFocusEffect(
@@ -86,7 +101,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
           totalQuestions: undefined 
         } as any);
       }
-    }, [route.params])
+    }, [route.params, navigation])
   );
 
   // Update timer every second
@@ -98,19 +113,33 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const checkDailyAttempts = async () => {
+  // OPTIMIZED: More efficient anime fetching with caching
+  const getAnimeWithQuestions = useCallback(async (): Promise<AnimeWithQuestions[]> => {
+    try {
+      // Use the optimized cached version
+      console.log('📦 Using cached anime data fetching...');
+      return await getAnimeWithQuestionsCached();
+    } catch (error) {
+      console.error('Error fetching anime with questions:', error);
+      return [];
+    }
+  }, []);
+
+  // OPTIMIZED: Check daily attempts more efficiently
+  const checkDailyAttempts = useCallback(async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
 
-      const todayDate = getUTCDateString();
+      console.log('Checking daily attempts for user:', user.uid);
       
-      // Get today's ranked attempts (not practice) for the PlayScreen display
+      // FIXED: Get ALL attempts for today, then filter client-side
+      // This avoids Firestore's != operator issues with missing fields
       const attemptsQuery = query(
         collection(firestore, 'dailyQuizzes'),
         where('userId', '==', user.uid),
         where('date', '==', todayDate)
-        // Remove the isPractice filter to get all attempts, then filter manually
+        // Remove the isPractice filter - we'll filter client-side
       );
 
       const snapshot = await getDocs(attemptsQuery);
@@ -118,58 +147,47 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
 
       snapshot.forEach((doc) => {
         const data = doc.data() as DailyAttempt;
-        // Only include ranked attempts (not practice) for PlayScreen display
-        if (!data.isPractice) {
+        
+        // Filter for ranked attempts (not practice) client-side
+        // This handles cases where isPractice is undefined, false, or missing
+        const isRankedAttempt = !data.isPractice; // undefined or false = ranked
+        
+        if (isRankedAttempt) {
           attempts[data.category] = data;
+          console.log(`Found ranked attempt for category ${data.category}: ${data.score}/${data.totalQuestions}`);
+        } else {
+          console.log(`Skipping practice attempt for category ${data.category}`);
         }
       });
 
-      console.log('Daily attempts found:', attempts); // Debug log
+      console.log('Daily ranked attempts found:', Object.keys(attempts).length);
       setDailyAttempts(attempts);
     } catch (error) {
       console.error('Error checking daily attempts:', error);
     }
-  };
+  }, [todayDate]);
 
-  const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
+  // OPTIMIZED: Fetch animes with caching and parallel operations
+  const fetchAnimes = useCallback(async (useCache: boolean = true) => {
     try {
-      // Get all questions and group by animeId
-      const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
-      const animeQuestionCount: { [key: number]: { name: string; count: number } } = {};
+      console.log('Starting fetchAnimes...');
+      
+      // Check cache first
+      const now = Date.now();
+      if (useCache && animeCache.data && (now - animeCache.timestamp) < animeCache.ttl) {
+        console.log('Using cached anime data');
+        setAnimeList(animeCache.data);
+        setError(null);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
 
-      questionsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.animeId && data.animeName) {
-          if (!animeQuestionCount[data.animeId]) {
-            animeQuestionCount[data.animeId] = {
-              name: data.animeName,
-              count: 0
-            };
-          }
-          animeQuestionCount[data.animeId].count++;
-        }
-      });
-
-      // Convert to array and filter out anime with very few questions (less than 100)
-      const animeWithQuestions: AnimeWithQuestions[] = Object.entries(animeQuestionCount)
-        .filter(([animeId, info]) => info.count >= 100) // Only show anime with at least 100 questions
-        .map(([animeId, info]) => ({
-          animeId: parseInt(animeId),
-          animeName: info.name,
-          questionCount: info.count
-        }));
-
-      return animeWithQuestions;
-    } catch (error) {
-      console.error('Error fetching anime with questions:', error);
-      return [];
-    }
-  };
-
-  const fetchAnimes = async () => {
-    try {
-      // First, get anime that have questions
-      const animeWithQuestions = await getAnimeWithQuestions();
+      // Run anime fetching and daily attempts check in parallel
+      const [animeWithQuestions] = await Promise.all([
+        getAnimeWithQuestions(),
+        checkDailyAttempts() // Run this in parallel
+      ]);
       
       if (animeWithQuestions.length === 0) {
         setError('No anime with questions available.');
@@ -186,7 +204,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         questionCount: animeWithQuestions.reduce((sum, anime) => sum + anime.questionCount, 0)
       };
 
-      // Fetch anime details from the animes collection for those that have questions
+      // Fetch anime details in parallel with a single query
       const animesSnapshot = await getDocs(collection(firestore, 'animes'));
       const animeDetails: { [key: number]: { title: string; coverImage: string; popularity: number } } = {};
       
@@ -201,7 +219,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         }
       });
 
-      // Build the final anime list with only anime that have questions
+      // Build the final anime list
       const animes: AnimeItem[] = [allCategory];
 
       animeWithQuestions.forEach((animeWithQ) => {
@@ -215,18 +233,22 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         });
       });
 
-      // Sort by popularity (keeping "All" first), then by question count as secondary sort
+      // Sort by popularity (keeping "All" first)
       const sortedAnimes = [
         allCategory,
         ...animes.slice(1).sort((a, b) => {
-          // Primary sort: popularity (descending)
           const popularityDiff = (b.popularity || 0) - (a.popularity || 0);
           if (popularityDiff !== 0) return popularityDiff;
-          
-          // Secondary sort: question count (descending)
           return (b.questionCount || 0) - (a.questionCount || 0);
         }),
       ];
+
+      // Update cache
+      animeCache = {
+        data: sortedAnimes,
+        timestamp: now,
+        ttl: 5 * 60 * 1000 // 5 minutes
+      };
 
       setAnimeList(sortedAnimes);
       setError(null);
@@ -237,28 +259,34 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [getAnimeWithQuestions, checkDailyAttempts]);
 
+  // OPTIMIZED: Initial load with cache
   useEffect(() => {
-    fetchAnimes();
-    checkDailyAttempts();
-  }, []);
+    console.log('PlayScreen: Initial load starting');
+    fetchAnimes(true); // Use cache on initial load
+  }, [fetchAnimes]);
 
-  const handleRefresh = async () => {
+  // OPTIMIZED: Refresh handler that bypasses cache
+  const handleRefresh = useCallback(async () => {
+    console.log('PlayScreen: Manual refresh triggered');
     setRefreshing(true);
-    await Promise.all([fetchAnimes(), checkDailyAttempts()]);
-  };
+    
+    // Clear cache and fetch fresh data
+    animeCache.data = null;
+    animeCache.timestamp = 0;
+    
+    await fetchAnimes(false); // Don't use cache on manual refresh
+  }, [fetchAnimes]);
 
-  const handleAnimePress = (animeId: number | null, animeName: string) => {
-    // Always navigate to CategoryScreen - no blocking behavior
-    // The CategoryScreen will handle today's completion status
+  const handleAnimePress = useCallback((animeId: number | null, animeName: string) => {
     navigation.navigate('Category', {
       animeId,
       animeName,
     });
-  };
+  }, [navigation]);
 
-  const renderAnimeCard = ({ item }: { item: AnimeItem }) => {
+  const renderAnimeCard = useCallback(({ item }: { item: AnimeItem }) => {
     const category = item.id === null ? 'all' : item.id.toString();
     const attempt = dailyAttempts[category];
 
@@ -273,14 +301,24 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         />
       </View>
     );
-  };
+  }, [dailyAttempts, handleAnimePress]);
 
-  if (loading) {
+  // OPTIMIZED: Better loading screen with consistent background
+  if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading anime...</Text>
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Surface style={styles.header} elevation={2}>
+          <Text style={styles.title}>Anime Quiz</Text>
+          <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
+        </Surface>
+        
+        <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
+            Loading anime...
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -322,6 +360,15 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
             <Text style={styles.emptySubtext}>Questions need to be added to the database</Text>
           </View>
         }
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        initialNumToRender={6}
+        getItemLayout={(data, index) => ({
+          length: 180, // Approximate item height
+          offset: 180 * Math.floor(index / (isSmallScreen ? 2 : 3)),
+          index,
+        })}
       />
 
       <Snackbar
