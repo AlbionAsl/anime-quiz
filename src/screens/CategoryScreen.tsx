@@ -1,4 +1,4 @@
-// src/screens/CategoryScreen.tsx
+// src/screens/CategoryScreen.tsx - OPTIMIZED VERSION
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -26,7 +26,6 @@ import { firestore, auth } from '../utils/firebase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
 import { PlayStackParamList } from '../navigation/PlayNavigator';
-import { getQuizCompletionStatus } from '../utils/quizUtils';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 type CategoryScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Category'>;
@@ -43,11 +42,27 @@ interface QuizDate {
   practiceTotalQuestions?: number;
 }
 
+interface QuizAttempt {
+  date: string;
+  isPractice: boolean;
+  score: number;
+  totalQuestions: number;
+}
+
 type CategoryScreenProps = StackScreenProps<PlayStackParamList, 'Category'>;
 
 const { width } = Dimensions.get('window');
 const numColumns = 3;
 const buttonWidth = (width - 64) / numColumns; // Account for padding and gaps
+
+// Cache for quiz dates to avoid repeated fetches
+let quizDatesCache: {
+  [category: string]: {
+    dates: string[];
+    timestamp: number;
+    ttl: number; // 2 minutes cache
+  };
+} = {};
 
 const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
   const theme = useTheme();
@@ -78,66 +93,116 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
     }, [])
   );
 
+  // OPTIMIZED: Batch fetch all quiz dates and completion statuses
   const fetchQuizDates = async () => {
     try {
       setLoading(true);
+      console.log('🚀 Starting optimized quiz dates fetch...');
       
-      // Get available quiz dates for this category
-      const dailyQuestionsQuery = query(
-        collection(firestore, 'dailyQuestions'),
-        where('category', '==', category),
-        orderBy('date', 'desc')
-      );
+      // Check cache first
+      const now = Date.now();
+      const cacheEntry = quizDatesCache[category];
+      let availableDates: string[] = [];
       
-      const questionsSnapshot = await getDocs(dailyQuestionsQuery);
-      
-      // Build quiz dates array with completion status
-      const dates: QuizDate[] = [];
+      if (cacheEntry && (now - cacheEntry.timestamp) < cacheEntry.ttl) {
+        console.log('📦 Using cached quiz dates');
+        availableDates = cacheEntry.dates;
+      } else {
+        console.log('🔄 Fetching fresh quiz dates from Firestore');
+        
+        // Get available quiz dates for this category
+        const dailyQuestionsQuery = query(
+          collection(firestore, 'dailyQuestions'),
+          where('category', '==', category),
+          orderBy('date', 'desc')
+        );
+        
+        const questionsSnapshot = await getDocs(dailyQuestionsQuery);
+        availableDates = questionsSnapshot.docs.map(doc => doc.data().date);
+        
+        // Cache the dates
+        quizDatesCache[category] = {
+          dates: availableDates,
+          timestamp: now,
+          ttl: 2 * 60 * 1000 // 2 minutes
+        };
+      }
+
+      // If no dates available, show empty state
+      if (availableDates.length === 0) {
+        setTodayQuiz(null);
+        setPastQuizzes([]);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      // OPTIMIZATION: Batch fetch ALL user attempts for this category in ONE query
       const user = auth.currentUser;
+      let userAttempts: Map<string, QuizAttempt[]> = new Map();
       
-      for (const doc of questionsSnapshot.docs) {
-        const data = doc.data();
-        const date = data.date;
+      if (user) {
+        console.log('📊 Batch fetching all user attempts...');
+        const attemptsQuery = query(
+          collection(firestore, 'dailyQuizzes'),
+          where('userId', '==', user.uid),
+          where('category', '==', category)
+        );
+        
+        const attemptsSnapshot = await getDocs(attemptsQuery);
+        
+        // Group attempts by date
+        attemptsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          const dateAttempts = userAttempts.get(data.date) || [];
+          dateAttempts.push({
+            date: data.date,
+            isPractice: data.isPractice || false,
+            score: data.score,
+            totalQuestions: data.totalQuestions
+          });
+          userAttempts.set(data.date, dateAttempts);
+        });
+        
+        console.log(`✅ Found attempts for ${userAttempts.size} different dates`);
+      }
+
+      // OPTIMIZATION: Process all dates in parallel
+      const datePromises = availableDates.map(async (date) => {
         const isToday = date === todayDate;
         
-        // Get completion status for this user and date
-        let completionStatus: {
-          hasPlayedRanked: boolean;
-          hasPracticed: boolean;
-          rankedScore?: number;
-          practiceScore?: number;
-          rankedTotalQuestions?: number;
-          practiceTotalQuestions?: number;
-        } = {
-          hasPlayedRanked: false,
-          hasPracticed: false,
-        };
-
-        if (user) {
-          completionStatus = await getQuizCompletionStatus(user.uid, category, date);
-        }
+        // Get completion status from our batched data
+        const attempts = userAttempts.get(date) || [];
+        const rankedAttempt = attempts.find(a => !a.isPractice);
+        const practiceAttempt = attempts.find(a => a.isPractice);
         
         const quizDate: QuizDate = {
           date,
           displayDate: formatDisplayDate(date),
           isToday,
-          hasPlayedRanked: completionStatus.hasPlayedRanked,
-          hasPracticed: completionStatus.hasPracticed,
-          rankedScore: completionStatus.rankedScore,
-          rankedTotalQuestions: completionStatus.rankedTotalQuestions,
-          practiceScore: completionStatus.practiceScore,
-          practiceTotalQuestions: completionStatus.practiceTotalQuestions,
+          hasPlayedRanked: !!rankedAttempt,
+          hasPracticed: !!practiceAttempt,
+          rankedScore: rankedAttempt?.score,
+          rankedTotalQuestions: rankedAttempt?.totalQuestions,
+          practiceScore: practiceAttempt?.score,
+          practiceTotalQuestions: practiceAttempt?.totalQuestions,
         };
+        
+        return quizDate;
+      });
 
-        if (isToday) {
-          setTodayQuiz(quizDate);
-        } else {
-          dates.push(quizDate);
-        }
-      }
-
-      setPastQuizzes(dates);
+      // Wait for all dates to be processed
+      const processedDates = await Promise.all(datePromises);
+      
+      // Separate today from past quizzes
+      const todayData = processedDates.find(d => d.isToday);
+      const pastData = processedDates.filter(d => !d.isToday);
+      
+      setTodayQuiz(todayData || null);
+      setPastQuizzes(pastData);
       setError(null);
+      
+      console.log('✅ Quiz dates loaded successfully');
     } catch (error) {
       console.error('Error fetching quiz dates:', error);
       setError('Failed to load quiz dates. Please try again.');
@@ -193,6 +258,8 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    // Clear cache to force fresh fetch
+    delete quizDatesCache[category];
     await fetchQuizDates();
   };
 
@@ -255,10 +322,14 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading quiz dates...</Text>
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
+            Loading quiz dates...
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 

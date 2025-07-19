@@ -148,7 +148,7 @@ const ProfileScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );

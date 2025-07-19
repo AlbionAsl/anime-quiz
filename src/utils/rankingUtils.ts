@@ -1,4 +1,4 @@
-// src/utils/rankingUtils.ts
+// src/utils/rankingUtils.ts - OPTIMIZED VERSION
 
 import { 
   collection, 
@@ -15,6 +15,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { firestore } from './firebase';
+import { getAnimeWithQuestionsCached } from './animeCacheUtils';
 
 interface RankingDocument {
   period: 'daily' | 'monthly' | 'allTime';
@@ -64,41 +65,11 @@ export const getMonthString = (date: Date = new Date()): string => {
 };
 
 /**
- * Get anime that have questions (same logic as PlayScreen)
+ * OPTIMIZED: Use the cached anime data instead of fetching everything
  */
 const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
-  try {
-    // Get all questions and group by animeId
-    const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
-    const animeQuestionCount: { [key: number]: { name: string; count: number } } = {};
-
-    questionsSnapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.animeId && data.animeName) {
-        if (!animeQuestionCount[data.animeId]) {
-          animeQuestionCount[data.animeId] = {
-            name: data.animeName,
-            count: 0
-          };
-        }
-        animeQuestionCount[data.animeId].count++;
-      }
-    });
-
-    // Convert to array and filter out anime with very few questions (less than 5)
-    const animeWithQuestions: AnimeWithQuestions[] = Object.entries(animeQuestionCount)
-      .filter(([animeId, info]) => info.count >= 5) // Only show anime with at least 5 questions
-      .map(([animeId, info]) => ({
-        animeId: parseInt(animeId),
-        animeName: info.name,
-        questionCount: info.count
-      }));
-
-    return animeWithQuestions;
-  } catch (error) {
-    console.error('Error fetching anime with questions:', error);
-    return [];
-  }
+  console.log('📦 Using cached anime data for rankings...');
+  return await getAnimeWithQuestionsCached();
 };
 
 /**
@@ -360,7 +331,7 @@ export const getUserRank = async (
   period: 'daily' | 'monthly' | 'allTime',
   periodValue: string,
   category: string
-): Promise<{ rank: number; totalPlayers: number; score: number; averageScore: number } | null> => {
+): Promise<{ rank: number; totalPlayers: number; score: number; averageScore: number; quizCount: number } | null> => {
   try {
     // First check if user has a ranking document
     const rankingId = `${period}_${periodValue}_${category}_${userId}`;
@@ -399,7 +370,8 @@ export const getUserRank = async (
       rank,
       totalPlayers,
       score: userData.score,
-      averageScore: userData.averageScore
+      averageScore: userData.averageScore,
+      quizCount: userData.quizCount || 0
     };
   } catch (error) {
     console.error('Error getting user rank:', error);
@@ -408,13 +380,13 @@ export const getUserRank = async (
 };
 
 /**
- * Get available categories (only anime with questions) - same logic as PlayScreen
+ * OPTIMIZED: Get available categories using cached anime data
  */
 export const getAvailableCategories = async (): Promise<Array<{ id: string; title: string }>> => {
   try {
     const categories = [{ id: 'all', title: 'All Anime' }];
     
-    // Get anime that have questions using the same logic as PlayScreen
+    // Use the cached anime data
     const animeWithQuestions = await getAnimeWithQuestions();
     
     // Fetch anime details from the animes collection for title consistency

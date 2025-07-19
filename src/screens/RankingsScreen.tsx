@@ -1,6 +1,6 @@
-// src/screens/RankingsScreen.tsx
+// src/screens/RankingsScreen.tsx - OPTIMIZED VERSION
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   RefreshControl,
   Dimensions,
+  Switch,
 } from 'react-native';
 import {
   Text,
@@ -58,6 +59,7 @@ interface UserRankData {
   totalPlayers: number;
   score: number;
   averageScore: number;
+  quizCount: number;
 }
 
 const RankingsScreen: React.FC = () => {
@@ -77,6 +79,8 @@ const RankingsScreen: React.FC = () => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [totalPlayers, setTotalPlayers] = useState(0);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [rankingsLoading, setRankingsLoading] = useState(true);
+  const [userQuizCount, setUserQuizCount] = useState<number>(0);
 
   // Get period value based on selected period
   const getPeriodValue = (): string => {
@@ -92,15 +96,55 @@ const RankingsScreen: React.FC = () => {
     }
   };
 
-  // Fetch categories on mount
+  // OPTIMIZED: Fetch categories using parallel loading on mount
   useEffect(() => {
-    fetchCategories();
+    // Start fetching immediately
+    fetchInitialData();
+  }, []);
+
+  // OPTIMIZED: Parallel initial data loading
+  const fetchInitialData = useCallback(async () => {
+    console.log('🚀 Starting parallel initial data fetch...');
+    
+    try {
+      // Run categories fetch in parallel with initial rankings setup
+      const categoriesPromise = fetchCategories();
+      
+      // Don't wait for categories to complete before starting other operations
+      categoriesPromise.then(() => {
+        setCategoriesLoading(false);
+      }).catch(error => {
+        console.error('Error loading categories:', error);
+        setCategoriesLoading(false);
+      });
+      
+    } catch (error) {
+      console.error('Error in initial data fetch:', error);
+    }
   }, []);
 
   // Set up real-time listener for leaderboard
   useEffect(() => {
+    if (categoriesLoading) {
+      // Don't set up listener until we have categories
+      return;
+    }
+
+    // Check if we should show empty state for average score
+    if (rankingType === 'averageScore' && !isAverageScoreAvailable()) {
+      // Don't fetch data, just show empty state
+      setLeaderboardData([]);
+      setTotalPlayers(0);
+      setRankingsLoading(false);
+      setLoading(false);
+      return;
+    }
+
     const periodValue = getPeriodValue();
     const cacheId = `${selectedPeriod}_${periodValue}_${selectedCategory}`;
+    
+    console.log(`📊 Setting up leaderboard listener for ${cacheId}`);
+    setRankingsLoading(true);
     
     const unsubscribe = onSnapshot(
       doc(firestore, 'leaderboardCache', cacheId),
@@ -119,32 +163,46 @@ const RankingsScreen: React.FC = () => {
           
           setLeaderboardData(players);
           setTotalPlayers(data.totalPlayers || players.length);
-          setLoading(false);
         } else {
           setLeaderboardData([]);
           setTotalPlayers(0);
-          setLoading(false);
         }
+        setRankingsLoading(false);
+        setLoading(false);
       },
       (error) => {
         console.error('Error listening to leaderboard:', error);
+        setRankingsLoading(false);
         setLoading(false);
       }
     );
 
     return () => unsubscribe();
-  }, [selectedPeriod, selectedCategory, rankingType]);
+  }, [selectedPeriod, selectedCategory, rankingType, categoriesLoading, userQuizCount]);
 
   // Fetch user rank whenever period/category changes
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && !categoriesLoading) {
       fetchUserRank();
     }
-  }, [selectedPeriod, selectedCategory, currentUser]);
+  }, [selectedPeriod, selectedCategory, currentUser, categoriesLoading]);
 
+  // Check if average score is available
+  const isAverageScoreAvailable = (): boolean => {
+    // Average score only available for monthly and allTime periods
+    if (selectedPeriod === 'daily') return false;
+    
+    // For monthly and allTime, check if user has 20+ quizzes
+    return userQuizCount >= 20;
+  };
+
+  // No need for auto-switching anymore - let users see the empty state
+
+  // OPTIMIZED: Use the cached anime data
   const fetchCategories = async () => {
     setCategoriesLoading(true);
     try {
+      console.log('📦 Fetching categories using optimized method...');
       const availableCategories = await getAvailableCategories();
       setCategories(availableCategories);
       
@@ -155,6 +213,8 @@ const RankingsScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error fetching categories:', error);
+      // Set at least the "All Anime" category as fallback
+      setCategories([{ id: 'all', title: 'All Anime' }]);
     } finally {
       setCategoriesLoading(false);
     }
@@ -172,8 +232,17 @@ const RankingsScreen: React.FC = () => {
         selectedCategory
       );
       setUserRank(rankData);
+      
+      // Also fetch user's quiz count for this period/category
+      if (rankData) {
+        // For average score availability check
+        setUserQuizCount(rankData.quizCount || 0);
+      } else {
+        setUserQuizCount(0);
+      }
     } catch (error) {
       console.error('Error fetching user rank:', error);
+      setUserQuizCount(0);
     }
   };
 
@@ -189,15 +258,15 @@ const RankingsScreen: React.FC = () => {
     setMenuVisible(false);
   };
 
+  const handlePeriodChange = (period: Period) => {
+    setSelectedPeriod(period);
+    // No auto-switching - let users see the empty state
+  };
+
   const getPeriodChips = () => [
     { id: 'daily', label: 'Daily', icon: 'calendar-today' },
     { id: 'monthly', label: 'Monthly', icon: 'calendar-month' },
     { id: 'allTime', label: 'All Time', icon: 'infinity' },
-  ];
-
-  const getRankingTypeChips = () => [
-    { id: 'totalScore', label: 'Total Score', icon: 'numeric' },
-    { id: 'averageScore', label: 'Average Score', icon: 'percent' },
   ];
 
   const renderLeaderboardItem = (player: LeaderboardPlayer, index: number) => {
@@ -263,12 +332,25 @@ const RankingsScreen: React.FC = () => {
     );
   };
 
-  if (loading && !refreshing) {
+  // OPTIMIZED: Show progressive loading - header first, then content
+  if (loading && !refreshing && categoriesLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Loading rankings...</Text>
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Surface style={styles.header} elevation={2}>
+          <Text style={styles.title}>Rankings</Text>
+          <View style={styles.categoriesLoadingContainer}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={styles.categoriesLoadingText}>Loading categories...</Text>
+          </View>
+        </Surface>
+        
+        <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
+            Loading rankings...
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -331,7 +413,7 @@ const RankingsScreen: React.FC = () => {
             <Chip
               key={period.id}
               selected={selectedPeriod === period.id}
-              onPress={() => setSelectedPeriod(period.id as Period)}
+              onPress={() => handlePeriodChange(period.id as Period)}
               style={[
                 styles.chip,
                 selectedPeriod === period.id && { backgroundColor: theme.colors.primaryContainer }
@@ -344,29 +426,30 @@ const RankingsScreen: React.FC = () => {
           ))}
         </ScrollView>
 
-        {/* Ranking Type Selector */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipScrollView}
-          contentContainerStyle={styles.chipContainer}
-        >
-          {getRankingTypeChips().map((type) => (
-            <Chip
-              key={type.id}
-              selected={rankingType === type.id}
-              onPress={() => setRankingType(type.id as RankingType)}
-              style={[
-                styles.chip,
-                rankingType === type.id && { backgroundColor: theme.colors.primaryContainer }
-              ]}
-              textStyle={styles.chipText}
-              icon={type.icon}
-            >
-              {type.label}
-            </Chip>
-          ))}
-        </ScrollView>
+        {/* Ranking Type Switch */}
+        <View style={styles.rankingTypeContainer}>
+          <View style={styles.rankingTypeLeft}>
+            <Text style={styles.rankingTypeLabel}>Total Score</Text>
+          </View>
+          
+          <Switch
+            value={rankingType === 'averageScore'}
+            onValueChange={(value) => setRankingType(value ? 'averageScore' : 'totalScore')}
+            trackColor={{ 
+              false: theme.colors.surfaceVariant, 
+              true: theme.colors.primaryContainer 
+            }}
+            thumbColor={
+              rankingType === 'averageScore' 
+                ? theme.colors.primary 
+                : theme.colors.onSurfaceVariant
+            }
+          />
+          
+          <View style={styles.rankingTypeRight}>
+            <Text style={styles.rankingTypeLabel}>Average Score</Text>
+          </View>
+        </View>
       </Surface>
 
       {/* User Rank Card */}
@@ -392,71 +475,101 @@ const RankingsScreen: React.FC = () => {
         </Surface>
       )}
 
-      {/* Leaderboard */}
-      <ScrollView
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-          />
-        }
-        contentContainerStyle={styles.scrollContent}
-      >
-        {rankingType === 'averageScore' && selectedPeriod === 'allTime' && (
-          <Surface style={[styles.infoCard, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
-            <MaterialCommunityIcons
-              name="information-outline"
-              size={20}
-              color={theme.colors.primary}
+      {/* Leaderboard Content */}
+      {rankingsLoading ? (
+        <View style={[styles.rankingsLoadingContainer, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
+            Loading rankings...
+          </Text>
+        </View>
+      ) : (
+        <ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[theme.colors.primary]}
+              tintColor={theme.colors.primary}
             />
-            <Text style={styles.infoText}>
-              Average score rankings require at least 20 quizzes completed
-            </Text>
-          </Surface>
-        )}
-
-        {categories.length <= 1 && (
-          <Surface style={[styles.infoCard, { backgroundColor: theme.colors.errorContainer }]} elevation={1}>
-            <MaterialCommunityIcons
-              name="alert-circle-outline"
-              size={20}
-              color={theme.colors.error}
-            />
-            <Text style={[styles.infoText, { color: theme.colors.error }]}>
-              No anime with questions available. Questions need to be added to the database.
-            </Text>
-          </Surface>
-        )}
-
-        {leaderboardData.length > 0 ? (
-          <>
-            {leaderboardData.map((player, index) => renderLeaderboardItem(player, index))}
-            
-            {leaderboardData.length === 100 && (
-              <Text style={styles.footerText}>
-                Showing top 100 players out of {totalPlayers}
+          }
+          contentContainerStyle={styles.scrollContent}
+        >
+          {rankingType === 'averageScore' && selectedPeriod === 'allTime' && (
+            <Surface style={[styles.infoCard, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
+              <MaterialCommunityIcons
+                name="information-outline"
+                size={20}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.infoText}>
+                Showing players with 20+ quizzes completed
               </Text>
-            )}
-          </>
-        ) : (
-          <View style={styles.emptyContainer}>
-            <MaterialCommunityIcons
-              name="trophy-outline"
-              size={64}
-              color={theme.colors.onSurfaceVariant}
-            />
-            <Text style={styles.emptyText}>No rankings yet</Text>
-            <Text style={styles.emptySubtext}>
-              {categories.length > 1 
-                ? "Be the first to complete a quiz!"
-                : "Questions need to be added before rankings can be displayed"
-              }
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+            </Surface>
+          )}
+
+          {categories.length <= 1 && (
+            <Surface style={[styles.infoCard, { backgroundColor: theme.colors.errorContainer }]} elevation={1}>
+              <MaterialCommunityIcons
+                name="alert-circle-outline"
+                size={20}
+                color={theme.colors.error}
+              />
+              <Text style={[styles.infoText, { color: theme.colors.error }]}>
+                No anime with questions available. Questions need to be added to the database.
+              </Text>
+            </Surface>
+          )}
+
+          {/* Check if we should show empty state for average score */}
+          {rankingType === 'averageScore' && !isAverageScoreAvailable() ? (
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons
+                name="percent-outline"
+                size={64}
+                color={theme.colors.onSurfaceVariant}
+              />
+              <Text style={styles.emptyText}>Average Score Not Available</Text>
+              <Text style={styles.emptySubtext}>
+                {selectedPeriod === 'daily' 
+                  ? "Average score rankings are only available for Monthly and All Time periods"
+                  : `Average score rankings require a minimum of 20 quizzes played. You have played ${userQuizCount} quiz${userQuizCount !== 1 ? 'zes' : ''}.`
+                }
+              </Text>
+              {selectedPeriod !== 'daily' && userQuizCount < 20 && (
+                <Text style={styles.emptyProgress}>
+                  Play {20 - userQuizCount} more quiz{20 - userQuizCount !== 1 ? 'zes' : ''} to unlock!
+                </Text>
+              )}
+            </View>
+          ) : leaderboardData.length > 0 ? (
+            <>
+              {leaderboardData.map((player, index) => renderLeaderboardItem(player, index))}
+              
+              {leaderboardData.length === 100 && (
+                <Text style={styles.footerText}>
+                  Showing top 100 players out of {totalPlayers}
+                </Text>
+              )}
+            </>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons
+                name="trophy-outline"
+                size={64}
+                color={theme.colors.onSurfaceVariant}
+              />
+              <Text style={styles.emptyText}>No rankings yet</Text>
+              <Text style={styles.emptySubtext}>
+                {categories.length > 1 
+                  ? "Be the first to complete a quiz!"
+                  : "Questions need to be added before rankings can be displayed"
+                }
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 };
@@ -469,6 +582,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  rankingsLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 50,
   },
   loadingText: {
     marginTop: 16,
@@ -530,6 +649,29 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 12,
+  },
+  rankingTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  rankingTypeLeft: {
+    alignItems: 'flex-end',
+    flex: 1,
+  },
+  rankingTypeRight: {
+    alignItems: 'flex-start',
+    flex: 1,
+  },
+  rankingTypeLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  disabledLabel: {
+    opacity: 0.4,
   },
   userRankCard: {
     margin: 16,
@@ -642,6 +784,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     opacity: 0.6,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+    lineHeight: 20,
+  },
+  emptyProgress: {
+    fontSize: 16,
+    marginTop: 16,
+    fontWeight: '600',
+    color: '#6C5CE7',
     textAlign: 'center',
   },
   footerText: {
