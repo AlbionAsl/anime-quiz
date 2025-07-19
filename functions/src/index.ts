@@ -1,22 +1,16 @@
-// src/utils/quizUtils.ts - Optimized version with embedded usage tracking
+// Cloud Function for midnight question generation
+// This would be deployed as a Firebase Cloud Function
 
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  writeBatch,
-  DocumentData,
-  arrayUnion
-} from 'firebase/firestore';
-import { firestore } from './firebase';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onRequest } from 'firebase-functions/v2/https';
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
+// Initialize Firebase Admin
+initializeApp();
+const db = getFirestore();
+
+// Define interfaces for the embedded system
 interface Question {
   id: string;
   question: string;
@@ -25,11 +19,11 @@ interface Question {
   animeId?: number;
   animeName?: string;
   random: number;
-  // Usage tracking fields (embedded)
+  // Embedded usage tracking fields
   lastUsed?: Date;
   timesUsed?: number;
-  usedDates?: string[]; // Array of YYYY-MM-DD dates
-  categories?: string[]; // Categories where used
+  usedDates?: string[];
+  categories?: string[];
 }
 
 interface DailyQuestions {
@@ -38,7 +32,7 @@ interface DailyQuestions {
   animeName: string;
   questions: Question[];
   generatedAt: Date;
-  questionIds: string[]; // For easy tracking
+  questionIds: string[];
 }
 
 interface AnimeWithQuestions {
@@ -50,7 +44,7 @@ interface AnimeWithQuestions {
 /**
  * Get the current UTC date in YYYY-MM-DD format
  */
-export const getUTCDateString = (): string => {
+const getUTCDateString = (): string => {
   const now = new Date();
   const year = now.getUTCFullYear();
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
@@ -59,11 +53,11 @@ export const getUTCDateString = (): string => {
 };
 
 /**
- * Get anime that have questions (same logic as PlayScreen)
+ * Get anime that have questions
  */
 const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
   try {
-    const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
+    const questionsSnapshot = await db.collection('questions').get();
     const animeQuestionCount: { [key: number]: { name: string; count: number } } = {};
 
     questionsSnapshot.forEach((doc) => {
@@ -95,7 +89,7 @@ const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
 };
 
 /**
- * Get unused questions for a category - MUCH MORE EFFICIENT!
+ * Get unused questions for a category
  */
 const getUnusedQuestions = async (
   category: string,
@@ -104,24 +98,17 @@ const getUnusedQuestions = async (
 ): Promise<Question[]> => {
   try {
     let questionsQuery;
-    
+
     if (category === 'all') {
-      // For "All Anime" category, get from all questions
-      questionsQuery = query(
-        collection(firestore, 'questions'),
-        orderBy('random')
-      );
+      questionsQuery = db.collection('questions').orderBy('random');
     } else {
-      // For specific anime
       const animeId = parseInt(category);
-      questionsQuery = query(
-        collection(firestore, 'questions'),
-        where('animeId', '==', animeId),
-        orderBy('random')
-      );
+      questionsQuery = db.collection('questions')
+        .where('animeId', '==', animeId)
+        .orderBy('random');
     }
 
-    const questionsSnapshot = await getDocs(questionsQuery);
+    const questionsSnapshot = await questionsQuery.get();
     const allQuestions: Question[] = [];
 
     questionsSnapshot.forEach((doc) => {
@@ -134,45 +121,36 @@ const getUnusedQuestions = async (
         animeId: data.animeId,
         animeName: data.animeName,
         random: data.random,
-        // Usage tracking fields
-        lastUsed: data.lastUsed?.toDate(),
-        timesUsed: data.timesUsed || 0,
-        usedDates: data.usedDates || [],
-        categories: data.categories || []
+        // FIX: Remove undefined fields when storing
+        ...(data.lastUsed && { lastUsed: data.lastUsed.toDate() }),
+        ...(data.timesUsed !== undefined && { timesUsed: data.timesUsed }),
+        ...(data.usedDates && { usedDates: data.usedDates }),
+        ...(data.categories && { categories: data.categories }),
       });
     });
 
-    // Filter unused questions (much simpler now!)
-    const unusedQuestions = allQuestions.filter(q => {
-      // Question is unused if:
-      // 1. Never used before (no categories), OR
-      // 2. Not used in this specific category AND not used in 'all' category
+    // Filter unused questions
+    const unusedQuestions = allQuestions.filter((q) => {
       if (!q.categories || q.categories.length === 0) {
         return true; // Never used
       }
-      
-      // Check if used in current category or 'all' category
       return !q.categories.includes(category) && !q.categories.includes('all');
     });
 
     console.log(`Found ${unusedQuestions.length} unused questions for category ${category}`);
 
-    // If we don't have enough unused questions
     if (unusedQuestions.length < limit) {
       console.warn(`Not enough unused questions for category ${category}. Need ${limit}, have ${unusedQuestions.length}`);
-      
+
       if (unusedQuestions.length > 0) {
         return unusedQuestions.slice(0, Math.min(limit, unusedQuestions.length));
       } else {
-        // Get least recently used questions
         return getLeastRecentlyUsedQuestions(category, allQuestions, limit);
       }
     }
 
-    // Use deterministic selection based on date for fairness
     const seed = generateDailySeed(targetDate, category);
     return selectQuestionsWithSeed(unusedQuestions, limit, seed);
-
   } catch (error) {
     console.error('Error getting unused questions:', error);
     return [];
@@ -180,27 +158,24 @@ const getUnusedQuestions = async (
 };
 
 /**
- * Get least recently used questions when no unused questions are available
+ * Get least recently used questions
  */
 const getLeastRecentlyUsedQuestions = (
   category: string,
   allQuestions: Question[],
   limit: number
 ): Question[] => {
-  // Filter questions that have been used in this category
   const usedInCategory = allQuestions.filter(q => 
     q.categories && (q.categories.includes(category) || q.categories.includes('all'))
   );
 
   if (usedInCategory.length === 0) {
-    // No questions have been used yet, return first N questions
     return allQuestions.slice(0, limit);
   }
 
-  // Sort by last used date (oldest first)
   const sortedByUsage = usedInCategory.sort((a, b) => {
     if (!a.lastUsed && !b.lastUsed) return 0;
-    if (!a.lastUsed) return -1; // Never used comes first
+    if (!a.lastUsed) return -1;
     if (!b.lastUsed) return 1;
     return a.lastUsed.getTime() - b.lastUsed.getTime();
   });
@@ -228,7 +203,6 @@ const generateDailySeed = (dateString: string, category: string): number => {
 const selectQuestionsWithSeed = (questions: Question[], count: number, seed: number): Question[] => {
   const shuffled = [...questions];
   
-  // Fisher-Yates shuffle with deterministic seed
   for (let i = shuffled.length - 1; i > 0; i--) {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
     const j = seed % (i + 1);
@@ -239,7 +213,7 @@ const selectQuestionsWithSeed = (questions: Question[], count: number, seed: num
 };
 
 /**
- * Mark questions as used - MUCH MORE EFFICIENT!
+ * Mark questions as used - Updated for embedded system
  */
 const markQuestionsAsUsed = async (
   questionIds: string[],
@@ -247,18 +221,17 @@ const markQuestionsAsUsed = async (
   date: string
 ): Promise<void> => {
   try {
-    const batch = writeBatch(firestore);
+    const batch = db.batch();
     const now = new Date();
 
     for (const questionId of questionIds) {
-      const questionRef = doc(firestore, 'questions', questionId);
+      const questionRef = db.collection('questions').doc(questionId);
       
-      // Update the question document directly with usage info
       batch.update(questionRef, {
         lastUsed: now,
-        timesUsed: increment(1),
-        usedDates: arrayUnion(date),
-        categories: arrayUnion(category)
+        timesUsed: FieldValue.increment(1),
+        usedDates: FieldValue.arrayUnion(date),
+        categories: FieldValue.arrayUnion(category)
       });
     }
 
@@ -273,18 +246,17 @@ const markQuestionsAsUsed = async (
 /**
  * Pre-generate questions for all categories for a specific date
  */
-export const preGenerateQuestionsForDate = async (targetDate?: string): Promise<void> => {
+const preGenerateQuestionsForDate = async (targetDate?: string): Promise<void> => {
   const date = targetDate || getUTCDateString();
   
   console.log(`Pre-generating questions for date: ${date}`);
 
   try {
     // Check if questions for this date already exist
-    const existingQuery = query(
-      collection(firestore, 'dailyQuestions'),
-      where('date', '==', date)
-    );
-    const existingSnapshot = await getDocs(existingQuery);
+    const existingSnapshot = await db.collection('dailyQuestions')
+      .where('date', '==', date)
+      .limit(1)
+      .get();
     
     if (!existingSnapshot.empty) {
       console.log(`Questions for ${date} already exist. Skipping generation.`);
@@ -299,8 +271,8 @@ export const preGenerateQuestionsForDate = async (targetDate?: string): Promise<
       { id: 'all', name: 'All Anime' }
     ];
     
-    // Sort anime by popularity for consistent ordering
-    const animesSnapshot = await getDocs(collection(firestore, 'animes'));
+    // Get anime details for sorting
+    const animesSnapshot = await db.collection('animes').get();
     const animeDetails: { [key: number]: { title: string; popularity: number } } = {};
     
     animesSnapshot.forEach((doc) => {
@@ -349,12 +321,9 @@ export const preGenerateQuestionsForDate = async (targetDate?: string): Promise<
         questionIds: questions.map(q => q.id)
       };
 
-      await setDoc(
-        doc(firestore, 'dailyQuestions', dailyQuestionId),
-        dailyQuestionsData
-      );
+      await db.collection('dailyQuestions').doc(dailyQuestionId).set(dailyQuestionsData);
 
-      // Mark questions as used (much more efficient now!)
+      // Mark questions as used
       await markQuestionsAsUsed(questions.map(q => q.id), category.id, date);
 
       console.log(`Generated ${questions.length} questions for ${category.name}`);
@@ -369,128 +338,41 @@ export const preGenerateQuestionsForDate = async (targetDate?: string): Promise<
 };
 
 /**
- * Get daily questions for a specific category (now just retrieves pre-generated questions)
+ * Cleanup old daily questions
  */
-export const getDailyQuestions = async (
-  animeId: number | null,
-  questionCount: number = 10
-): Promise<Question[]> => {
-  const dateString = getUTCDateString();
-  const category = animeId === null ? 'all' : animeId.toString();
-  const dailyQuestionId = `${dateString}_${category}`;
-
-  try {
-    // Try to get pre-generated questions
-    const dailyQuestionDoc = await getDoc(
-      doc(firestore, 'dailyQuestions', dailyQuestionId)
-    );
-
-    if (dailyQuestionDoc.exists()) {
-      const data = dailyQuestionDoc.data() as DailyQuestions;
-      console.log(`Using pre-generated questions for ${category} on ${dateString}`);
-      return data.questions;
-    }
-
-    // If no pre-generated questions exist, try to generate them now
-    console.warn(`No pre-generated questions found for ${category} on ${dateString}. Generating now...`);
-    
-    await preGenerateQuestionsForDate(dateString);
-    
-    // Try again to get the questions
-    const retryDoc = await getDoc(
-      doc(firestore, 'dailyQuestions', dailyQuestionId)
-    );
-    
-    if (retryDoc.exists()) {
-      const data = retryDoc.data() as DailyQuestions;
-      return data.questions;
-    }
-
-    throw new Error(`Failed to generate questions for category ${category}`);
-
-  } catch (error) {
-    console.error('Error fetching daily questions:', error);
-    throw error;
-  }
-};
-
-/**
- * Check if the user has already played today
- */
-export const hasPlayedToday = async (
-  userId: string,
-  category: string
-): Promise<boolean> => {
-  const dateString = getUTCDateString();
-  
-  const attemptQuery = query(
-    collection(firestore, 'dailyQuizzes'),
-    where('userId', '==', userId),
-    where('date', '==', dateString),
-    where('category', '==', category)
-  );
-
-  const snapshot = await getDocs(attemptQuery);
-  return !snapshot.empty;
-};
-
-/**
- * Get time until next UTC midnight
- */
-export const getTimeUntilReset = (): { hours: number; minutes: number; seconds: number } => {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  tomorrow.setUTCHours(0, 0, 0, 0);
-  
-  const diff = tomorrow.getTime() - now.getTime();
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-  
-  return { hours, minutes, seconds };
-};
-
-/**
- * Cleanup old daily questions (optional utility function)
- */
-export const cleanupOldQuestions = async (daysToKeep: number = 30): Promise<void> => {
+const cleanupOldQuestions = async (daysToKeep: number = 30): Promise<void> => {
   try {
     const cutoffDate = new Date();
     cutoffDate.setUTCDate(cutoffDate.getUTCDate() - daysToKeep);
     const cutoffDateString = cutoffDate.toISOString().split('T')[0];
 
-    const oldQuestionsQuery = query(
-      collection(firestore, 'dailyQuestions'),
-      where('date', '<', cutoffDateString)
-    );
+    const oldQuestionsSnapshot = await db.collection('dailyQuestions')
+      .where('date', '<', cutoffDateString)
+      .get();
 
-    const snapshot = await getDocs(oldQuestionsQuery);
-    const batch = writeBatch(firestore);
-
-    snapshot.forEach((doc) => {
+    const batch = db.batch();
+    oldQuestionsSnapshot.forEach((doc) => {
       batch.delete(doc.ref);
     });
 
     await batch.commit();
-    console.log(`Cleaned up ${snapshot.size} old daily question documents`);
+    console.log(`Cleaned up ${oldQuestionsSnapshot.size} old daily question documents`);
   } catch (error) {
     console.error('Error cleaning up old questions:', error);
   }
 };
 
 /**
- * Get question usage statistics - MORE EFFICIENT!
+ * Get question usage statistics - Updated for embedded system
  */
-export const getQuestionUsageStats = async (): Promise<{
+const getQuestionUsageStats = async (): Promise<{
   totalQuestions: number;
   usedQuestions: number;
   unusedQuestions: number;
   categoryStats: { [category: string]: { used: number; total: number } };
 }> => {
   try {
-    // Single query to get all questions with usage data
-    const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
+    const questionsSnapshot = await db.collection('questions').get();
 
     let totalQuestions = 0;
     let usedQuestions = 0;
@@ -500,13 +382,11 @@ export const getQuestionUsageStats = async (): Promise<{
       const data = doc.data();
       totalQuestions++;
       
-      // Count as used if it has any usage data
       const isUsed = data.categories && data.categories.length > 0;
       if (isUsed) {
         usedQuestions++;
       }
 
-      // Category stats
       const category = data.animeId ? data.animeId.toString() : 'all';
       if (!categoryStats[category]) {
         categoryStats[category] = { used: 0, total: 0 };
@@ -537,5 +417,212 @@ export const getQuestionUsageStats = async (): Promise<{
   }
 };
 
-// Helper function for batch updates
-import { increment } from 'firebase/firestore';
+/**
+ * Scheduled function that runs every day at midnight UTC
+ * to pre-generate questions for all categories
+ */
+export const generateDailyQuestions = onSchedule(
+  {
+    schedule: '0 0 * * *', // Every day at midnight UTC
+    timeZone: 'UTC',
+    memory: '512MiB',
+    timeoutSeconds: 300, // 5 minutes timeout
+  },
+  async (event) => {
+    console.log('Starting daily question generation at midnight UTC');
+    
+    try {
+      // Generate questions for today
+      await preGenerateQuestionsForDate();
+      
+      console.log('Successfully generated daily questions');
+      
+      // Optional: Cleanup old questions (keep last 30 days)
+      await cleanupOldQuestions(30);
+      
+      // Optional: Log usage statistics
+      const stats = await getQuestionUsageStats();
+      console.log('Question usage statistics:', stats);
+      
+      // Log completion
+      await db.collection('systemLogs').add({
+        type: 'dailyQuestionGeneration',
+        status: 'success',
+        timestamp: new Date(),
+        stats
+      });
+      
+    } catch (error) {
+      console.error('Error generating daily questions:', error);
+      
+      // Log error
+      await db.collection('systemLogs').add({
+        type: 'dailyQuestionGeneration',
+        status: 'error',
+        timestamp: new Date(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      
+      throw error;
+    }
+  }
+);
+
+/**
+ * Manual function to generate questions for a specific date
+ * Can be called via HTTP request for testing or manual generation
+ */
+export const generateQuestionsForDate = onSchedule(
+  {
+    schedule: '0 1 * * *', // Backup generation 1 hour later
+    timeZone: 'UTC',
+    memory: '256MiB',
+  },
+  async (event) => {
+    console.log('Running backup question generation');
+    
+    try {
+      // Check if today's questions exist
+      const today = getUTCDateString();
+      const existingSnapshot = await db
+        .collection('dailyQuestions')
+        .where('date', '==', today)
+        .limit(1)
+        .get();
+      
+      if (existingSnapshot.empty) {
+        console.log('No questions found for today, generating...');
+        await preGenerateQuestionsForDate();
+      } else {
+        console.log('Questions already exist for today');
+      }
+      
+    } catch (error) {
+      console.error('Error in backup generation:', error);
+    }
+  }
+);
+
+/**
+ * Weekly cleanup function
+ * Runs every Sunday at 2 AM UTC to clean up old data
+ */
+export const weeklyCleanup = onSchedule(
+  {
+    schedule: '0 2 * * 0', // Every Sunday at 2 AM UTC
+    timeZone: 'UTC',
+    memory: '256MiB',
+  },
+  async (event) => {
+    console.log('Running weekly cleanup');
+    
+    try {
+      // Cleanup old daily questions (keep 60 days)
+      await cleanupOldQuestions(60);
+      
+      // Optional: Cleanup old system logs
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 90); // Keep 90 days of logs
+      
+      const oldLogsSnapshot = await db
+        .collection('systemLogs')
+        .where('timestamp', '<', cutoffDate)
+        .get();
+      
+      const batch = db.batch();
+      oldLogsSnapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      console.log(`Cleaned up ${oldLogsSnapshot.size} old log entries`);
+      
+      // Log cleanup completion
+      await db.collection('systemLogs').add({
+        type: 'weeklyCleanup',
+        status: 'success',
+        timestamp: new Date(),
+        cleanedQuestions: 'completed',
+        cleanedLogs: oldLogsSnapshot.size
+      });
+      
+    } catch (error) {
+      console.error('Error in weekly cleanup:', error);
+      
+      await db.collection('systemLogs').add({
+        type: 'weeklyCleanup',
+        status: 'error',
+        timestamp: new Date(),
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+);
+
+/**
+ * HTTP function for manual question generation (for testing)
+ */
+export const manualGenerateQuestions = onRequest(
+  {
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async (req, res) => {
+    // Add basic authentication here if needed
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== 'Bearer anime-quiz-secret-2025') {
+      res.status(401).send('Unauthorized');
+      return;
+    }
+    
+    try {
+      const targetDate = req.query.date as string || undefined;
+      
+      console.log(`Manual generation request for date: ${targetDate || 'today'}`);
+      
+      await preGenerateQuestionsForDate(targetDate);
+      
+      const stats = await getQuestionUsageStats();
+      
+      res.status(200).json({
+        success: true,
+        message: 'Questions generated successfully',
+        date: targetDate || getUTCDateString(),
+        stats
+      });
+      
+    } catch (error) {
+      console.error('Error in manual generation:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+);
+
+/**
+ * HTTP function to get question usage statistics
+ */
+export const getQuestionStats = onRequest(
+  {
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    try {
+      const stats = await getQuestionUsageStats();
+      
+      res.status(200).json({
+        success: true,
+        stats
+      });
+      
+    } catch (error) {
+      console.error('Error getting stats:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+);

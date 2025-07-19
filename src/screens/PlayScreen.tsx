@@ -34,6 +34,7 @@ interface AnimeItem {
   popularity?: number;
   hasPlayedToday?: boolean;
   todayScore?: number;
+  questionCount?: number; // Add question count to help with sorting
 }
 
 interface DailyAttempt {
@@ -43,6 +44,12 @@ interface DailyAttempt {
   score: number;
   totalQuestions: number;
   completedAt: Date;
+}
+
+interface AnimeWithQuestions {
+  animeId: number;
+  animeName: string;
+  questionCount: number;
 }
 
 const { width } = Dimensions.get('window');
@@ -116,35 +123,101 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     }
   };
 
+  const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
+    try {
+      // Get all questions and group by animeId
+      const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
+      const animeQuestionCount: { [key: number]: { name: string; count: number } } = {};
+
+      questionsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.animeId && data.animeName) {
+          if (!animeQuestionCount[data.animeId]) {
+            animeQuestionCount[data.animeId] = {
+              name: data.animeName,
+              count: 0
+            };
+          }
+          animeQuestionCount[data.animeId].count++;
+        }
+      });
+
+      // Convert to array and filter out anime with very few questions (less than 5)
+      const animeWithQuestions: AnimeWithQuestions[] = Object.entries(animeQuestionCount)
+        .filter(([animeId, info]) => info.count >= 100) // Only show anime with at least 5 questions
+        .map(([animeId, info]) => ({
+          animeId: parseInt(animeId),
+          animeName: info.name,
+          questionCount: info.count
+        }));
+
+      return animeWithQuestions;
+    } catch (error) {
+      console.error('Error fetching anime with questions:', error);
+      return [];
+    }
+  };
+
   const fetchAnimes = async () => {
     try {
-      // First add the "All" category
+      // First, get anime that have questions
+      const animeWithQuestions = await getAnimeWithQuestions();
+      
+      if (animeWithQuestions.length === 0) {
+        setError('No anime with questions available.');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Create the "All" category first
       const allCategory: AnimeItem = {
         id: null,
         title: 'All Anime',
         coverImage: 'https://via.placeholder.com/300x450/6C5CE7/FFFFFF?text=ALL+ANIME',
+        questionCount: animeWithQuestions.reduce((sum, anime) => sum + anime.questionCount, 0)
       };
 
-      // Fetch anime from Firestore
+      // Fetch anime details from the animes collection for those that have questions
       const animesSnapshot = await getDocs(collection(firestore, 'animes'));
-      const animes: AnimeItem[] = [allCategory];
-
+      const animeDetails: { [key: number]: { title: string; coverImage: string; popularity: number } } = {};
+      
       animesSnapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.id && data.title && data.coverImage) {
-          animes.push({
-            id: data.id,
-            title: data.title,
-            coverImage: data.coverImage,
-            popularity: data.popularity || 0,
-          });
+        if (data.id) {
+          animeDetails[data.id] = {
+            title: data.title || 'Unknown Anime',
+            coverImage: data.coverImage || 'https://via.placeholder.com/300x450/666/FFFFFF?text=NO+IMAGE',
+            popularity: data.popularity || 0
+          };
         }
       });
 
-      // Sort by popularity (keeping "All" first)
+      // Build the final anime list with only anime that have questions
+      const animes: AnimeItem[] = [allCategory];
+
+      animeWithQuestions.forEach((animeWithQ) => {
+        const details = animeDetails[animeWithQ.animeId];
+        animes.push({
+          id: animeWithQ.animeId,
+          title: details?.title || animeWithQ.animeName,
+          coverImage: details?.coverImage || 'https://via.placeholder.com/300x450/666/FFFFFF?text=NO+IMAGE',
+          popularity: details?.popularity || 0,
+          questionCount: animeWithQ.questionCount
+        });
+      });
+
+      // Sort by popularity (keeping "All" first), then by question count as secondary sort
       const sortedAnimes = [
         allCategory,
-        ...animes.slice(1).sort((a, b) => (b.popularity || 0) - (a.popularity || 0)),
+        ...animes.slice(1).sort((a, b) => {
+          // Primary sort: popularity (descending)
+          const popularityDiff = (b.popularity || 0) - (a.popularity || 0);
+          if (popularityDiff !== 0) return popularityDiff;
+          
+          // Secondary sort: question count (descending)
+          return (b.questionCount || 0) - (a.questionCount || 0);
+        }),
       ];
 
       setAnimeList(sortedAnimes);
@@ -215,6 +288,11 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       <Surface style={styles.header} elevation={2}>
         <Text style={styles.title}>Anime Quiz</Text>
         <Text style={styles.subtitle}>Choose an anime to start your daily quiz</Text>
+        {animeList.length > 1 && (
+          <Text style={styles.animeCount}>
+            {animeList.length - 1} anime available with questions
+          </Text>
+        )}
       </Surface>
 
       <DailyQuizStatus 
@@ -239,7 +317,8 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No anime available</Text>
+            <Text style={styles.emptyText}>No anime with questions available</Text>
+            <Text style={styles.emptySubtext}>Questions need to be added to the database</Text>
           </View>
         }
       />
@@ -285,6 +364,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,
   },
+  animeCount: {
+    fontSize: 12,
+    textAlign: 'center',
+    opacity: 0.6,
+    marginTop: 4,
+  },
   listContainer: {
     paddingHorizontal: 8,
     paddingBottom: 20,
@@ -319,6 +404,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     opacity: 0.6,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    opacity: 0.4,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
 

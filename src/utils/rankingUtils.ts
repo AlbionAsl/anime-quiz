@@ -48,6 +48,12 @@ interface LeaderboardCache {
   totalPlayers?: number;
 }
 
+interface AnimeWithQuestions {
+  animeId: number;
+  animeName: string;
+  questionCount: number;
+}
+
 /**
  * Get the current month in YYYY-MM format
  */
@@ -55,6 +61,44 @@ export const getMonthString = (date: Date = new Date()): string => {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
+};
+
+/**
+ * Get anime that have questions (same logic as PlayScreen)
+ */
+const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
+  try {
+    // Get all questions and group by animeId
+    const questionsSnapshot = await getDocs(collection(firestore, 'questions'));
+    const animeQuestionCount: { [key: number]: { name: string; count: number } } = {};
+
+    questionsSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.animeId && data.animeName) {
+        if (!animeQuestionCount[data.animeId]) {
+          animeQuestionCount[data.animeId] = {
+            name: data.animeName,
+            count: 0
+          };
+        }
+        animeQuestionCount[data.animeId].count++;
+      }
+    });
+
+    // Convert to array and filter out anime with very few questions (less than 5)
+    const animeWithQuestions: AnimeWithQuestions[] = Object.entries(animeQuestionCount)
+      .filter(([animeId, info]) => info.count >= 5) // Only show anime with at least 5 questions
+      .map(([animeId, info]) => ({
+        animeId: parseInt(animeId),
+        animeName: info.name,
+        questionCount: info.count
+      }));
+
+    return animeWithQuestions;
+  } catch (error) {
+    console.error('Error fetching anime with questions:', error);
+    return [];
+  }
 };
 
 /**
@@ -364,27 +408,56 @@ export const getUserRank = async (
 };
 
 /**
- * Get available categories from the anime collection
+ * Get available categories (only anime with questions) - same logic as PlayScreen
  */
 export const getAvailableCategories = async (): Promise<Array<{ id: string; title: string }>> => {
   try {
     const categories = [{ id: 'all', title: 'All Anime' }];
     
+    // Get anime that have questions using the same logic as PlayScreen
+    const animeWithQuestions = await getAnimeWithQuestions();
+    
+    // Fetch anime details from the animes collection for title consistency
     const animesSnapshot = await getDocs(collection(firestore, 'animes'));
+    const animeDetails: { [key: number]: { title: string; popularity: number } } = {};
+    
     animesSnapshot.forEach((doc) => {
       const data = doc.data();
-      if (data.id && data.title) {
-        categories.push({
-          id: data.id.toString(),
-          title: data.title
-        });
+      if (data.id) {
+        animeDetails[data.id] = {
+          title: data.title || 'Unknown Anime',
+          popularity: data.popularity || 0
+        };
       }
+    });
+
+    // Add categories for anime with questions
+    animeWithQuestions.forEach((animeWithQ) => {
+      const details = animeDetails[animeWithQ.animeId];
+      categories.push({
+        id: animeWithQ.animeId.toString(),
+        title: details?.title || animeWithQ.animeName
+      });
     });
     
     // Sort by title, keeping "All Anime" first
     return [
-      categories[0],
-      ...categories.slice(1).sort((a, b) => a.title.localeCompare(b.title))
+      categories[0], // Keep "All Anime" first
+      ...categories.slice(1).sort((a, b) => {
+        // Get anime details for sorting by popularity
+        const aAnimeId = parseInt(a.id);
+        const bAnimeId = parseInt(b.id);
+        const aPopularity = animeDetails[aAnimeId]?.popularity || 0;
+        const bPopularity = animeDetails[bAnimeId]?.popularity || 0;
+        
+        // Primary sort: by popularity (descending)
+        if (aPopularity !== bPopularity) {
+          return bPopularity - aPopularity;
+        }
+        
+        // Secondary sort: by title (ascending)
+        return a.title.localeCompare(b.title);
+      })
     ];
   } catch (error) {
     console.error('Error getting categories:', error);

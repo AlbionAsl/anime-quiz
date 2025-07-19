@@ -76,6 +76,7 @@ const RankingsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [totalPlayers, setTotalPlayers] = useState(0);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
 
   // Get period value based on selected period
   const getPeriodValue = (): string => {
@@ -142,11 +143,20 @@ const RankingsScreen: React.FC = () => {
   }, [selectedPeriod, selectedCategory, currentUser]);
 
   const fetchCategories = async () => {
+    setCategoriesLoading(true);
     try {
       const availableCategories = await getAvailableCategories();
       setCategories(availableCategories);
+      
+      // If the currently selected category is not available, reset to 'all'
+      if (!availableCategories.find(cat => cat.id === selectedCategory)) {
+        setSelectedCategory('all');
+        setSelectedCategoryTitle('All Anime');
+      }
     } catch (error) {
       console.error('Error fetching categories:', error);
+    } finally {
+      setCategoriesLoading(false);
     }
   };
 
@@ -269,31 +279,45 @@ const RankingsScreen: React.FC = () => {
         
         {/* Category Selector */}
         <View style={styles.categorySelector}>
-          <Menu
-            visible={menuVisible}
-            onDismiss={() => setMenuVisible(false)}
-            anchor={
-              <Button
-                mode="outlined"
-                onPress={() => setMenuVisible(true)}
-                style={styles.categoryButton}
-                contentStyle={styles.categoryButtonContent}
-              >
-                <MaterialCommunityIcons name="gamepad-variant" size={16} />
-                <Text style={styles.categoryButtonText}>{selectedCategoryTitle}</Text>
-                <MaterialCommunityIcons name="chevron-down" size={16} />
-              </Button>
-            }
-          >
-            {categories.map((category) => (
-              <Menu.Item
-                key={category.id}
-                onPress={() => handleCategorySelect(category.id, category.title)}
-                title={category.title}
-                leadingIcon={category.id === 'all' ? 'infinity' : 'gamepad-variant'}
-              />
-            ))}
-          </Menu>
+          {categoriesLoading ? (
+            <View style={styles.categoriesLoadingContainer}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <Text style={styles.categoriesLoadingText}>Loading categories...</Text>
+            </View>
+          ) : (
+            <Menu
+              visible={menuVisible}
+              onDismiss={() => setMenuVisible(false)}
+              anchor={
+                <Button
+                  mode="outlined"
+                  onPress={() => setMenuVisible(true)}
+                  style={styles.categoryButton}
+                  contentStyle={styles.categoryButtonContent}
+                  disabled={categories.length <= 1}
+                >
+                  <MaterialCommunityIcons name="gamepad-variant" size={16} />
+                  <Text style={styles.categoryButtonText}>{selectedCategoryTitle}</Text>
+                  <MaterialCommunityIcons name="chevron-down" size={16} />
+                </Button>
+              }
+            >
+              {categories.map((category) => (
+                <Menu.Item
+                  key={category.id}
+                  onPress={() => handleCategorySelect(category.id, category.title)}
+                  title={category.title}
+                  leadingIcon={category.id === 'all' ? 'infinity' : 'gamepad-variant'}
+                />
+              ))}
+            </Menu>
+          )}
+          
+          {categories.length > 1 && (
+            <Text style={styles.categoryCount}>
+              {categories.length - 1} anime available
+            </Text>
+          )}
         </View>
 
         {/* Period Selector */}
@@ -393,6 +417,19 @@ const RankingsScreen: React.FC = () => {
           </Surface>
         )}
 
+        {categories.length <= 1 && (
+          <Surface style={[styles.infoCard, { backgroundColor: theme.colors.errorContainer }]} elevation={1}>
+            <MaterialCommunityIcons
+              name="alert-circle-outline"
+              size={20}
+              color={theme.colors.error}
+            />
+            <Text style={[styles.infoText, { color: theme.colors.error }]}>
+              No anime with questions available. Questions need to be added to the database.
+            </Text>
+          </Surface>
+        )}
+
         {leaderboardData.length > 0 ? (
           <>
             {leaderboardData.map((player, index) => renderLeaderboardItem(player, index))}
@@ -412,7 +449,10 @@ const RankingsScreen: React.FC = () => {
             />
             <Text style={styles.emptyText}>No rankings yet</Text>
             <Text style={styles.emptySubtext}>
-              Be the first to complete a quiz!
+              {categories.length > 1 
+                ? "Be the first to complete a quiz!"
+                : "Questions need to be added before rankings can be displayed"
+              }
             </Text>
           </View>
         )}
@@ -449,6 +489,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     alignItems: 'center',
   },
+  categoriesLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  categoriesLoadingText: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
   categoryButton: {
     borderRadius: 8,
   },
@@ -460,6 +510,11 @@ const styles = StyleSheet.create({
   categoryButtonText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  categoryCount: {
+    fontSize: 12,
+    opacity: 0.6,
+    marginTop: 4,
   },
   chipScrollView: {
     marginBottom: 8,
@@ -587,6 +642,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 8,
     opacity: 0.6,
+    textAlign: 'center',
   },
   footerText: {
     textAlign: 'center',
