@@ -34,7 +34,7 @@ interface AnimeItem {
   popularity?: number;
   hasPlayedToday?: boolean;
   todayScore?: number;
-  questionCount?: number; // Add question count to help with sorting
+  questionCount?: number;
 }
 
 interface DailyAttempt {
@@ -44,6 +44,7 @@ interface DailyAttempt {
   score: number;
   totalQuestions: number;
   completedAt: Date;
+  isPractice?: boolean; // Add this to distinguish practice vs ranked
 }
 
 interface AnimeWithQuestions {
@@ -103,10 +104,12 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       if (!user) return;
 
       const todayDate = getUTCDateString();
+      // Get today's ranked attempts (not practice) for the PlayScreen display
       const attemptsQuery = query(
         collection(firestore, 'dailyQuizzes'),
         where('userId', '==', user.uid),
-        where('date', '==', todayDate)
+        where('date', '==', todayDate),
+        where('isPractice', '!=', true) // Exclude practice attempts
       );
 
       const snapshot = await getDocs(attemptsQuery);
@@ -114,7 +117,10 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
 
       snapshot.forEach((doc) => {
         const data = doc.data() as DailyAttempt;
-        attempts[data.category] = data;
+        // Only include if it's not a practice attempt
+        if (!data.isPractice) {
+          attempts[data.category] = data;
+        }
       });
 
       setDailyAttempts(attempts);
@@ -142,9 +148,9 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         }
       });
 
-      // Convert to array and filter out anime with very few questions (less than 5)
+      // Convert to array and filter out anime with very few questions (less than 100)
       const animeWithQuestions: AnimeWithQuestions[] = Object.entries(animeQuestionCount)
-        .filter(([animeId, info]) => info.count >= 100) // Only show anime with at least 5 questions
+        .filter(([animeId, info]) => info.count >= 100) // Only show anime with at least 100 questions
         .map(([animeId, info]) => ({
           animeId: parseInt(animeId),
           animeName: info.name,
@@ -242,16 +248,8 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   };
 
   const handleAnimePress = (animeId: number | null, animeName: string) => {
-    const category = animeId === null ? 'all' : animeId.toString();
-    const attempt = dailyAttempts[category];
-
-    if (attempt) {
-      // Show score if already played today
-      setError(`You already played ${animeName} today! Score: ${attempt.score}/${attempt.totalQuestions}`);
-      return;
-    }
-
-    navigation.navigate('Quiz', {
+    // Navigate to CategoryScreen instead of QuizScreen
+    navigation.navigate('Category', {
       animeId,
       animeName,
     });
@@ -287,7 +285,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.header} elevation={2}>
         <Text style={styles.title}>Anime Quiz</Text>
-        <Text style={styles.subtitle}>Choose an anime to start your daily quiz</Text>
+        <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
         {animeList.length > 1 && (
           <Text style={styles.animeCount}>
             {animeList.length - 1} anime available with questions

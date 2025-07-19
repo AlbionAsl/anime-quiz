@@ -1,4 +1,4 @@
-// src/utils/quizUtils.ts - Optimized version with embedded usage tracking
+// src/utils/quizUtils.ts - Enhanced version with date-specific queries
 
 import { 
   collection, 
@@ -50,11 +50,10 @@ interface AnimeWithQuestions {
 /**
  * Get the current UTC date in YYYY-MM-DD format
  */
-export const getUTCDateString = (): string => {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
+export const getUTCDateString = (date: Date = new Date()): string => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
 
@@ -271,6 +270,157 @@ const markQuestionsAsUsed = async (
 };
 
 /**
+ * Get questions for a specific date and category
+ */
+export const getQuestionsForDate = async (
+  animeId: number | null,
+  targetDate: string
+): Promise<Question[]> => {
+  try {
+    const category = animeId === null ? 'all' : animeId.toString();
+    const dailyQuestionId = `${targetDate}_${category}`;
+
+    // Try to get pre-generated questions for this date
+    const dailyQuestionDoc = await getDoc(
+      doc(firestore, 'dailyQuestions', dailyQuestionId)
+    );
+
+    if (dailyQuestionDoc.exists()) {
+      const data = dailyQuestionDoc.data() as DailyQuestions;
+      console.log(`Using pre-generated questions for ${category} on ${targetDate}`);
+      return data.questions || [];
+    }
+
+    // If no pre-generated questions exist for this date, return empty array
+    console.warn(`No questions found for ${category} on ${targetDate}`);
+    return [];
+  } catch (error) {
+    console.error('Error fetching questions for date:', error);
+    return [];
+  }
+};
+
+/**
+ * Get available quiz dates for a category
+ */
+export const getAvailableQuizDates = async (
+  animeId: number | null
+): Promise<string[]> => {
+  try {
+    const category = animeId === null ? 'all' : animeId.toString();
+    
+    const dailyQuestionsQuery = query(
+      collection(firestore, 'dailyQuestions'),
+      where('category', '==', category),
+      orderBy('date', 'desc')
+    );
+    
+    const snapshot = await getDocs(dailyQuestionsQuery);
+    const dates: string[] = [];
+    
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.date) {
+        dates.push(data.date);
+      }
+    });
+    
+    return dates;
+  } catch (error) {
+    console.error('Error fetching available quiz dates:', error);
+    return [];
+  }
+};
+
+/**
+ * Check if user has completed a specific quiz (either ranked or practice)
+ */
+export const hasCompletedQuiz = async (
+  userId: string,
+  category: string,
+  date: string,
+  isPractice: boolean = false
+): Promise<boolean> => {
+  try {
+    const quizQuery = query(
+      collection(firestore, 'dailyQuizzes'),
+      where('userId', '==', userId),
+      where('category', '==', category),
+      where('date', '==', date),
+      where('isPractice', '==', isPractice)
+    );
+
+    const snapshot = await getDocs(quizQuery);
+    return !snapshot.empty;
+  } catch (error) {
+    console.error('Error checking quiz completion:', error);
+    return false;
+  }
+};
+
+/**
+ * Get user's completion status for a specific date and category
+ */
+export const getQuizCompletionStatus = async (
+  userId: string,
+  category: string,
+  date: string
+): Promise<{
+  hasPlayedRanked: boolean;
+  hasPracticed: boolean;
+  rankedScore?: number;
+  practiceScore?: number;
+  rankedTotalQuestions?: number;
+  practiceTotalQuestions?: number;
+}> => {
+  try {
+    const quizQuery = query(
+      collection(firestore, 'dailyQuizzes'),
+      where('userId', '==', userId),
+      where('category', '==', category),
+      where('date', '==', date)
+    );
+
+    const snapshot = await getDocs(quizQuery);
+    
+    let hasPlayedRanked = false;
+    let hasPracticed = false;
+    let rankedScore: number | undefined;
+    let practiceScore: number | undefined;
+    let rankedTotalQuestions: number | undefined;
+    let practiceTotalQuestions: number | undefined;
+
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.isPractice) {
+        hasPracticed = true;
+        practiceScore = data.score;
+        practiceTotalQuestions = data.totalQuestions;
+      } else {
+        hasPlayedRanked = true;
+        rankedScore = data.score;
+        rankedTotalQuestions = data.totalQuestions;
+      }
+    });
+
+    return {
+      hasPlayedRanked,
+      hasPracticed,
+      rankedScore,
+      practiceScore,
+      rankedTotalQuestions,
+      practiceTotalQuestions,
+    };
+  } catch (error) {
+    console.error('Error getting quiz completion status:', error);
+    return {
+      hasPlayedRanked: false,
+      hasPracticed: false,
+    };
+  }
+};
+
+/**
  * Pre-generate questions for all categories for a specific date
  */
 export const preGenerateQuestionsForDate = async (targetDate?: string): Promise<void> => {
@@ -415,7 +565,7 @@ export const getDailyQuestions = async (
 };
 
 /**
- * Check if the user has already played today
+ * Check if the user has already played today (only for ranked quizzes)
  */
 export const hasPlayedToday = async (
   userId: string,
@@ -427,7 +577,8 @@ export const hasPlayedToday = async (
     collection(firestore, 'dailyQuizzes'),
     where('userId', '==', userId),
     where('date', '==', dateString),
-    where('category', '==', category)
+    where('category', '==', category),
+    where('isPractice', '!=', true) // Only check for ranked attempts
   );
 
   const snapshot = await getDocs(attemptQuery);

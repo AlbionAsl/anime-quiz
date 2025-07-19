@@ -24,7 +24,7 @@ import {
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { PlayStackParamList } from '../navigation/PlayNavigator';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment, getDoc } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import { getDailyQuestions, getUTCDateString } from '../utils/quizUtils';
 import { updateRankings } from '../utils/rankingUtils';
@@ -55,7 +55,7 @@ const QuizScreen: React.FC = () => {
   const theme = useTheme();
   const route = useRoute<QuizScreenRouteProp>();
   const navigation = useNavigation<QuizScreenNavigationProp>();
-  const { animeId, animeName } = route.params;
+  const { animeId, animeName, date, isPractice = false } = route.params;
 
   // State declarations
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -68,6 +68,11 @@ const QuizScreen: React.FC = () => {
   const [showResults, setShowResults] = useState(false);
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Determine if this is today's quiz
+  const todayDate = getUTCDateString();
+  const isToday = !date || date === todayDate;
+  const actualIsPractice = isPractice || !isToday; // If not today, it's automatically practice
 
   useEffect(() => {
     fetchQuestions();
@@ -88,11 +93,18 @@ const QuizScreen: React.FC = () => {
     try {
       setLoading(true);
       
-      // Use the new getDailyQuestions utility for consistent daily questions
-      const dailyQuestions = await getDailyQuestions(animeId, 10);
+      let dailyQuestions: Question[];
+      
+      if (date && date !== todayDate) {
+        // Fetch questions for specific date
+        dailyQuestions = await getQuestionsForDate(animeId, date);
+      } else {
+        // Use the existing getDailyQuestions for today
+        dailyQuestions = await getDailyQuestions(animeId, 10);
+      }
 
       if (dailyQuestions.length === 0) {
-        setError('No questions available for this category');
+        setError('No questions available for this category and date');
         setLoading(false);
         return;
       }
@@ -103,6 +115,30 @@ const QuizScreen: React.FC = () => {
       console.error('Error fetching questions:', error);
       setError('Failed to load questions. Please try again.');
       setLoading(false);
+    }
+  };
+
+  const getQuestionsForDate = async (animeId: number | null, targetDate: string): Promise<Question[]> => {
+    try {
+      const category = animeId === null ? 'all' : animeId.toString();
+      const dailyQuestionId = `${targetDate}_${category}`;
+
+      // Try to get pre-generated questions for this date
+      const dailyQuestionDoc = await getDoc(
+        doc(firestore, 'dailyQuestions', dailyQuestionId)
+      );
+
+      if (dailyQuestionDoc.exists()) {
+        const data = dailyQuestionDoc.data();
+        return data.questions || [];
+      }
+
+      // If no pre-generated questions exist for this date, return empty array
+      console.warn(`No questions found for ${category} on ${targetDate}`);
+      return [];
+    } catch (error) {
+      console.error('Error fetching questions for date:', error);
+      return [];
     }
   };
 
@@ -147,30 +183,34 @@ const QuizScreen: React.FC = () => {
       const score = finalAnswers.filter(a => a.isCorrect).length;
       
       const category = animeId === null ? 'all' : animeId.toString();
-      const todayDate = getUTCDateString();
+      const quizDate = date || todayDate;
 
       // Save quiz attempt
       await addDoc(collection(firestore, 'dailyQuizzes'), {
         userId: user.uid,
-        date: todayDate,
+        date: quizDate,
         category,
         animeName,
         score,
         totalQuestions: questions.length,
         completedAt: new Date(),
         answers: finalAnswers,
+        isPractice: actualIsPractice, // Mark as practice if needed
       });
 
-      // Update user statistics
-      const userRef = doc(firestore, 'users', user.uid);
-      await updateDoc(userRef, {
-        totalQuizzes: increment(1),
-        totalCorrectAnswers: increment(score),
-        [`categoryScores.${category}`]: increment(score),
-      });
+      // Only update user statistics and rankings if it's not practice mode
+      if (!actualIsPractice) {
+        // Update user statistics
+        const userRef = doc(firestore, 'users', user.uid);
+        await updateDoc(userRef, {
+          totalQuizzes: increment(1),
+          totalCorrectAnswers: increment(score),
+          [`categoryScores.${category}`]: increment(score),
+        });
 
-      // Update rankings
-      await updateRankings(user.uid, category, score, questions.length);
+        // Update rankings only for non-practice quizzes
+        await updateRankings(user.uid, category, score, questions.length);
+      }
 
       setShowResults(true);
       
@@ -185,6 +225,17 @@ const QuizScreen: React.FC = () => {
   const handleExit = () => {
     setShowExitDialog(false);
     navigation.goBack();
+  };
+
+  const getQuizModeText = () => {
+    if (actualIsPractice) {
+      return isToday ? 'Practice Mode' : `Practice - ${date}`;
+    }
+    return 'Ranked Quiz';
+  };
+
+  const getQuizModeIcon = () => {
+    return actualIsPractice ? 'school' : 'trophy';
   };
 
   if (loading) {
@@ -217,27 +268,39 @@ const QuizScreen: React.FC = () => {
             <Text style={styles.resultTitle}>Quiz Complete!</Text>
             <Text style={styles.categoryText}>{animeName}</Text>
             
+            {/* Show quiz mode */}
+            <Chip 
+              icon={getQuizModeIcon()}
+              style={[
+                styles.modeChip, 
+                { backgroundColor: actualIsPractice ? theme.colors.secondary : theme.colors.primary }
+              ]}
+              textStyle={styles.modeChipText}
+            >
+              {getQuizModeText()}
+            </Chip>
+            
             <View style={styles.scoreCircle}>
               <Text style={styles.scoreNumber}>{score}</Text>
               <Text style={styles.scoreDivider}>/</Text>
               <Text style={styles.scoreTotal}>10</Text>
             </View>
+
+            {actualIsPractice && (
+              <Text style={styles.practiceNote}>
+                Practice mode - No rankings or stats updated
+              </Text>
+            )}
             
             <Button
               mode="contained"
               onPress={() => {
-                const score = answers.filter(a => a.isCorrect).length;
-                const category = animeId === null ? 'all' : animeId.toString();
-                navigation.navigate('PlayHome', { 
-                  refresh: true,
-                  completedCategory: category,
-                  score: score,
-                  totalQuestions: 10
-                });
+                // Navigate back to CategoryScreen instead of PlayHome
+                navigation.goBack();
               }}
               style={styles.finishButton}
             >
-              Finish
+              Back to {animeName}
             </Button>
           </Surface>
         </View>
@@ -265,9 +328,21 @@ const QuizScreen: React.FC = () => {
           size={24}
           onPress={() => setShowExitDialog(true)}
         />
-        <Text style={styles.questionCounter}>
-          Question {currentQuestionIndex + 1} of {questions.length}
-        </Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.questionCounter}>
+            Question {currentQuestionIndex + 1} of {questions.length}
+          </Text>
+          <Chip 
+            icon={getQuizModeIcon()}
+            style={[
+              styles.headerModeChip, 
+              { backgroundColor: actualIsPractice ? theme.colors.secondary : theme.colors.primary }
+            ]}
+            textStyle={styles.headerModeChipText}
+          >
+            {getQuizModeText()}
+          </Chip>
+        </View>
         <View style={{ width: 48 }} />
       </View>
 
@@ -387,9 +462,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 8,
   },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
   questionCounter: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  headerModeChip: {
+    borderRadius: 12,
+  },
+  headerModeChipText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: 'white',
   },
   mainProgressBar: {
     height: 6,
@@ -514,7 +602,16 @@ const styles = StyleSheet.create({
   categoryText: {
     fontSize: 18,
     opacity: 0.8,
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  modeChip: {
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  modeChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'white',
   },
   scoreCircle: {
     flexDirection: 'row',
@@ -535,11 +632,18 @@ const styles = StyleSheet.create({
     fontSize: 36,
     opacity: 0.8,
   },
+  practiceNote: {
+    fontSize: 14,
+    opacity: 0.7,
+    textAlign: 'center',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
   finishButton: {
     paddingHorizontal: 32,
     paddingVertical: 8,
     borderRadius: 8,
-    marginTop: 24,
+    marginTop: 16,
   },
 });
 

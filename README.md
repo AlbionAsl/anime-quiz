@@ -1,14 +1,15 @@
 # DAILYQUIZ - Anime Quiz App 🎌
 
-A React Native mobile application that challenges users with daily anime trivia quizzes. Compete with other anime fans through daily, monthly, and all-time rankings while testing your knowledge across different anime series.
+A React Native mobile application that challenges users with daily anime trivia quizzes. Compete with other anime fans through daily, monthly, and all-time rankings while testing your knowledge across different anime series. Practice on past quizzes to improve your skills without affecting your rankings.
 
 ## 📱 Features
 
-### 🎯 Daily Quiz System
-- **One Quiz Per Day**: Each anime category can only be played once per day (resets at UTC midnight)
+### 🎯 Quiz System
+- **Daily Quiz**: Each anime category can only be played once per day for rankings (resets at UTC midnight)
+- **Practice Mode**: Replay any past quiz without affecting rankings or statistics
 - **Consistent Questions**: All users get the same questions for each category on the same day
 - **Multiple Categories**: Choose from "All Anime" or specific anime series
-- **Progress Tracking**: Visual progress indicators and daily completion status
+- **Progress Tracking**: Visual progress indicators and completion status for both ranked and practice modes
 
 ### 🏆 Ranking System
 - **Daily Rankings**: Compete for the highest score each day
@@ -16,6 +17,7 @@ A React Native mobile application that challenges users with daily anime trivia 
 - **All-Time Rankings**: Overall performance across all quizzes
 - **Average Score Rankings**: Top performers by average (minimum 20 quizzes required)
 - **Real-time Updates**: Rankings update immediately after quiz completion
+- **Practice Protection**: Only today's ranked quizzes count toward rankings and statistics
 
 ### 👤 User Management
 - **Email Authentication**: Secure sign-up and login with email verification
@@ -28,6 +30,7 @@ A React Native mobile application that challenges users with daily anime trivia 
 - **Material Design**: Clean, intuitive interface using React Native Paper
 - **Responsive Design**: Optimized for different screen sizes
 - **Real-time Feedback**: Instant question feedback and progress indicators
+- **Intuitive Navigation**: Clear separation between ranked and practice modes
 
 ## 🏗️ Technical Architecture
 
@@ -52,14 +55,15 @@ App (Provider)
 ├── UserCreationScreen
 └── MainTabNavigator
     ├── PlayNavigator
-    │   ├── PlayScreen (Quiz selection)
+    │   ├── PlayScreen (Quiz category selection)
+    │   ├── CategoryScreen (Date and mode selection)
     │   └── QuizScreen (Quiz gameplay)
     ├── RankingsScreen
     └── ProfileScreen
 ```
 
 #### Core Utilities
-- **quizUtils.ts**: Daily question generation and caching
+- **quizUtils.ts**: Daily question generation, caching, and date-specific queries
 - **rankingUtils.ts**: Leaderboard management and statistics
 - **firebase.ts**: Firebase configuration and initialization
 
@@ -152,6 +156,11 @@ App (Provider)
   animeId: number; // null for general questions
   animeName: string;
   random: number; // for efficient random selection
+  // Usage tracking fields
+  lastUsed?: Date;
+  timesUsed?: number;
+  usedDates?: string[]; // Array of YYYY-MM-DD dates
+  categories?: string[]; // Categories where used
 }
 ```
 
@@ -175,11 +184,24 @@ App (Provider)
   score: number;
   totalQuestions: number;
   completedAt: Date;
+  isPractice?: boolean; // true for practice mode, false/undefined for ranked
   answers: Array<{
     questionId: string;
     selectedOption: number;
     isCorrect: boolean;
   }>;
+}
+```
+
+#### `dailyQuestions`
+```typescript
+{
+  date: string; // YYYY-MM-DD UTC format
+  category: string; // 'all' or animeId
+  animeName: string;
+  questions: Question[];
+  generatedAt: Date;
+  questionIds: string[]; // For easy tracking
 }
 ```
 
@@ -203,33 +225,46 @@ App (Provider)
 
 1. **Create Account**: Sign up with email and verify your account
 2. **Choose Username**: Pick a unique username for the leaderboards
-3. **Select Quiz**: Choose from "All Anime" or specific anime categories
-4. **Answer Questions**: You have 10 questions per quiz
-5. **View Results**: See your score and updated rankings
-6. **Check Rankings**: Compare your performance with other players
-7. **Come Back Tomorrow**: New questions are available each day!
+3. **Select Category**: Choose from "All Anime" or specific anime categories
+4. **Choose Mode**:
+   - **Today's Quiz**: Play for rankings and statistics (once per day)
+   - **Practice Mode**: Replay any past quiz without affecting your stats
+5. **Answer Questions**: You have 10 questions per quiz
+6. **View Results**: See your score and updated rankings (ranked mode only)
+7. **Check Rankings**: Compare your performance with other players
+8. **Practice & Improve**: Use practice mode to replay past quizzes and improve your skills
 
 ## 🔧 Development
 
 ### Key Features Implementation
+
+#### Dual Quiz Modes
+- **Ranked Mode**: Only today's quiz counts toward rankings and user statistics
+- **Practice Mode**: Replay any past quiz without affecting rankings or stats
+- **Visual Distinction**: Clear UI indicators showing which mode is active
+- **Separate Tracking**: Independent completion tracking for ranked vs practice attempts
 
 #### Daily Question System
 - Uses deterministic seeding based on date and category
 - Ensures all users get identical questions each day
 - Implements efficient caching to reduce database queries
 - Questions are pre-selected using random field indexing
+- Supports historical question retrieval for practice mode
 
 #### Ranking Algorithm
 - Real-time leaderboard updates using Firestore transactions
 - Separate ranking documents for different time periods
 - Cached leaderboard data for optimal performance
 - Support for both total score and average score rankings
+- Practice mode exclusion from all ranking calculations
 
 #### User Experience
-- Responsive design adapting to different screen sizes
-- Smooth animations and transitions
-- Real-time progress tracking
-- Comprehensive error handling and user feedback
+- **Category Selection**: Browse available anime categories with completion status
+- **Date Selection**: Choose between today's ranked quiz or past practice quizzes
+- **Visual Hierarchy**: Clear separation between "Today" and "Replay old games" sections
+- **Smart Button States**: Enabled/disabled states with completion scores displayed
+- **Responsive Design**: Adapts to different screen sizes with grid layouts
+- **Comprehensive Error Handling**: User-friendly feedback and error messages
 
 ### Testing
 ```bash
@@ -251,4 +286,21 @@ npx expo build:android
 # Using EAS Build (recommended)
 npx eas build --platform all
 ```
-TEST 2
+
+## 🎯 Key Benefits
+
+### For Users
+- **Skill Improvement**: Practice on past quizzes without penalty
+- **Fair Competition**: Only today's performance affects rankings
+- **Progress Tracking**: Monitor both ranked and practice completions
+- **Flexible Learning**: Choose when to compete vs when to practice
+- **Historical Access**: Replay any past quiz date
+
+### For Developers
+- **Clean Architecture**: Separation between ranked and practice systems
+- **Data Integrity**: Rankings only include legitimate daily attempts
+- **Scalability**: Efficient question management and caching
+- **Maintainability**: Clear code structure with TypeScript support
+- **Extensibility**: Easy to add new features and quiz modes
+
+This implementation provides a comprehensive quiz platform that balances competitive rankings with educational practice opportunities, ensuring users can improve their anime knowledge while maintaining fair competition standards.
