@@ -19,6 +19,7 @@ import {
   Dialog,
   Portal,
   IconButton,
+  Chip,
 } from 'react-native-paper';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -27,6 +28,7 @@ import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment } 
 import { firestore, auth } from '../utils/firebase';
 import { getDailyQuestions, getUTCDateString } from '../utils/quizUtils';
 import { updateRankings } from '../utils/rankingUtils';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 type QuizScreenRouteProp = RouteProp<PlayStackParamList, 'Quiz'>;
 type QuizScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Quiz'>;
@@ -276,6 +278,19 @@ const QuizScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <Surface style={styles.questionCard} elevation={2}>
+          {/* Anime name chip - only show if it's not "All Anime" category */}
+          {currentQuestion.animeName && currentQuestion.animeName !== 'All Anime' && (
+            <View style={styles.animeChipContainer}>
+              <Chip 
+                icon="gamepad-variant" 
+                style={[styles.animeChip, { backgroundColor: theme.colors.primaryContainer }]}
+                textStyle={styles.animeChipText}
+              >
+                {currentQuestion.animeName}
+              </Chip>
+            </View>
+          )}
+          
           <Text style={[styles.questionText, isSmallScreen && styles.questionTextSmall]}>
             {currentQuestion.question}
           </Text>
@@ -310,7 +325,14 @@ const QuizScreen: React.FC = () => {
                   contentStyle={styles.optionContent}
                   disabled={showFeedback || submitting}
                 >
-                  {String.fromCharCode(65 + index)}. {option}
+                  <View style={styles.optionContentWrapper}>
+                    <Text style={[styles.optionLetter, isSmallScreen && styles.optionLetterSmall]}>
+                      {String.fromCharCode(65 + index)}.
+                    </Text>
+                    <Text style={[styles.optionTextContent, isSmallScreen && styles.optionTextSmall]}>
+                      {option}
+                    </Text>
+                  </View>
                 </Button>
               </Surface>
             );
@@ -387,6 +409,17 @@ const styles = StyleSheet.create({
     minHeight: 120,
     justifyContent: 'center',
   },
+  animeChipContainer: {
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  animeChip: {
+    borderRadius: 16,
+  },
+  animeChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   questionText: {
     fontSize: 18,
     lineHeight: 26,
@@ -414,20 +447,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(244, 67, 54, 0.1)',
   },
   optionButton: {
-    paddingVertical: 8,
+    paddingVertical: 0,
     paddingHorizontal: 0,
+    minHeight: 60,
   },
   optionContent: {
     height: 'auto',
     minHeight: 60,
     justifyContent: 'flex-start',
     paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: 'flex-start',
+  },
+  optionContentWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    width: '100%',
+    gap: 8,
+  },
+  optionLetter: {
+    fontSize: 16,
+    fontWeight: '600',
+    minWidth: 20,
+    marginTop: 2,
+  },
+  optionLetterSmall: {
+    fontSize: 14,
   },
   optionText: {
     fontSize: 16,
     textAlign: 'left',
     flex: 1,
     lineHeight: 22,
+  },
+  optionTextContent: {
+    fontSize: 16,
+    lineHeight: 22,
+    flex: 1,
+    textAlign: 'left',
   },
   optionTextSmall: {
     fontSize: 14,
