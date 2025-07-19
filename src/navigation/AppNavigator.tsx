@@ -114,23 +114,27 @@ const AppNavigator: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
-  const [emailVerified, setEmailVerified] = useState(false);
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
 
+    console.log('🔧 Setting up auth state listener...');
+
     const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log('🔐 Auth state changed:', currentUser ? `User logged in (${currentUser.uid})` : 'User logged out');
+      
       if (currentUser) {
-        setUser(currentUser);
-        setEmailVerified(currentUser.emailVerified);
+        console.log('📧 Email verified:', currentUser.emailVerified);
+        console.log('💾 Auth persistence working: User found on app restart');
         
-        // If email is not verified, don't check profile
+        // Only proceed if email is verified
         if (!currentUser.emailVerified) {
-          setProfileLoading(false);
-          setLoading(false);
+          console.log('❌ Email not verified, signing out user');
+          await auth.signOut();
           return;
         }
         
+        setUser(currentUser);
         setProfileLoading(true);
         
         // Clean up previous profile listener
@@ -140,26 +144,38 @@ const AppNavigator: React.FC = () => {
         
         // Listen for real-time updates to user profile
         const userDocRef = doc(firestore, 'users', currentUser.uid);
+        console.log('👤 Setting up profile listener for user:', currentUser.uid);
+        
         profileUnsubscribe = onSnapshot(
           userDocRef,
           (docSnap) => {
-            setHasProfile(docSnap.exists());
+            const profileExists = docSnap.exists();
+            console.log('📄 Profile exists:', profileExists);
+            
+            if (profileExists) {
+              console.log('✅ User profile found, navigating to main app');
+            } else {
+              console.log('🆕 No profile found, showing user creation screen');
+            }
+            
+            setHasProfile(profileExists);
             setProfileLoading(false);
             setLoading(false);
           },
           (error) => {
-            console.error('Error listening to user profile:', error);
+            console.error('❌ Error listening to user profile:', error);
             setHasProfile(false);
             setProfileLoading(false);
             setLoading(false);
           }
         );
       } else {
+        console.log('🚪 No user found, showing login screen');
+        console.log('⚠️  Auth persistence may not be working if this appears on app restart');
         setUser(null);
         setHasProfile(false);
         setProfileLoading(false);
         setLoading(false);
-        setEmailVerified(false);
         
         // Clean up profile listener when user signs out
         if (profileUnsubscribe) {
@@ -170,6 +186,7 @@ const AppNavigator: React.FC = () => {
     });
 
     return () => {
+      console.log('🧹 Cleaning up auth listeners');
       authUnsubscribe();
       if (profileUnsubscribe) {
         profileUnsubscribe();
@@ -177,32 +194,22 @@ const AppNavigator: React.FC = () => {
     };
   }, []);
 
-  // Check for email verification status changes
-  useEffect(() => {
-    if (user && !emailVerified) {
-      const interval = setInterval(async () => {
-        try {
-          await user.reload();
-          if (user.emailVerified) {
-            setEmailVerified(true);
-            clearInterval(interval);
-          }
-        } catch (error) {
-          console.error('Error reloading user:', error);
-        }
-      }, 3000); // Check every 3 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [user, emailVerified]);
-
-  if (loading || (user && profileLoading && emailVerified)) {
+  if (loading || (user && profileLoading)) {
+    console.log('Showing loading screen');
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
+
+  console.log('Rendering navigation with state:', {
+    hasUser: !!user,
+    hasProfile,
+    loading,
+    profileLoading
+  });
 
   return (
     <NavigationContainer>
@@ -213,11 +220,7 @@ const AppNavigator: React.FC = () => {
         }}
       >
         {user ? (
-          !emailVerified ? (
-            <Stack.Screen name="EmailVerification">
-              {() => <EmailVerificationScreen user={user} />}
-            </Stack.Screen>
-          ) : hasProfile ? (
+          hasProfile ? (
             <Stack.Screen name="MainTabs" component={MainTabNavigator} />
           ) : (
             <Stack.Screen name="UserCreation" component={UserCreationScreen} />
@@ -238,6 +241,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
   },
   container: {
     flex: 1,

@@ -50,20 +50,26 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
     setLoading(true);
     try {
+      console.log('Attempting login for:', email);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Login successful, user:', userCredential.user.uid);
       
       // Check if email is verified
       if (!userCredential.user.emailVerified) {
-        // Sign out the user if email is not verified
+        console.log('Email not verified, preventing login');
+        // Sign out the user immediately - they cannot access the app without verification
         await auth.signOut();
         setShowVerificationDialog(true);
         setLoading(false);
         return;
       }
       
+      console.log('Email verified, login complete');
       // If email is verified, navigation will be handled by the auth state listener
+      
     } catch (error: any) {
       setLoading(false);
+      console.error('Login error:', error.code, error.message);
       
       // Handle specific error cases with user-friendly messages
       let title = 'Login Failed';
@@ -113,19 +119,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const handleResendVerification = async () => {
     setResendingEmail(true);
     try {
-      // Sign in again to get the user object
+      // Sign in temporarily to send verification email
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       
       // Send verification email
       await sendEmailVerification(userCredential.user);
+      console.log('Verification email sent');
       
-      // Sign out again
+      // Sign out immediately after sending email
       await auth.signOut();
       
       setErrorTitle('Email Sent');
-      setErrorMessage('Verification email sent successfully! Please check your inbox.');
+      setErrorMessage('Verification email sent successfully! Please check your inbox and click the verification link before logging in.');
       setShowErrorDialog(true);
     } catch (error: any) {
+      console.error('Error sending verification email:', error);
       let message = 'Failed to send verification email. Please try again.';
       
       if (error.code === 'auth/too-many-requests') {
@@ -144,6 +152,14 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     setErrorTitle('Coming Soon');
     setErrorMessage('Google sign-in will be implemented soon!');
     setShowErrorDialog(true);
+  };
+
+  const handleVerificationDialogDismiss = () => {
+    setShowVerificationDialog(false);
+    // Clear form fields since user was signed out
+    setEmail('');
+    setPassword('');
+    setShowEmailLogin(false);
   };
 
   const styles = StyleSheet.create({
@@ -396,17 +412,20 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       <Portal>
         <Dialog 
           visible={showVerificationDialog} 
-          onDismiss={() => setShowVerificationDialog(false)}
+          onDismiss={handleVerificationDialogDismiss}
           dismissable={false}
         >
-          <Dialog.Title>Email Not Verified</Dialog.Title>
+          <Dialog.Title>Email Verification Required</Dialog.Title>
           <Dialog.Content style={styles.dialogContent}>
             <Text style={styles.dialogText}>
-              Your email address has not been verified yet.
+              Your email address must be verified before you can access the app.
             </Text>
             <Text style={styles.dialogEmail}>{email}</Text>
             <Text style={styles.dialogText}>
-              Please check your inbox and click the verification link to activate your account.
+              Please check your inbox and click the verification link, then try logging in again.
+            </Text>
+            <Text style={styles.dialogText}>
+              Haven't received the email? You can request a new verification email below.
             </Text>
             <Button
               mode="contained"
@@ -425,7 +444,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             </Button>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setShowVerificationDialog(false)}>Close</Button>
+            <Button onPress={handleVerificationDialogDismiss}>OK</Button>
           </Dialog.Actions>
         </Dialog>
 

@@ -20,7 +20,6 @@ import {
   ProgressBar
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { signOut } from 'firebase/auth';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, firestore } from '../utils/firebase';
 import { getMonthString } from '../utils/rankingUtils';
@@ -112,14 +111,6 @@ const ProfileScreen: React.FC = () => {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchData();
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
   };
 
   const calculateOverallAverage = (): number => {
@@ -292,16 +283,6 @@ const ProfileScreen: React.FC = () => {
             Unlock achievements by completing quizzes and climbing the rankings
           </Text>
         </Surface>
-
-        {/* Sign Out Button */}
-        <Button
-          mode="contained"
-          onPress={handleSignOut}
-          style={styles.signOutButton}
-          icon="logout"
-        >
-          Sign Out
-        </Button>
       </ScrollView>
     </SafeAreaView>
   );
@@ -461,12 +442,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
     marginTop: 8,
     marginBottom: 12,
-  },
-  signOutButton: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    paddingVertical: 8,
-    borderRadius: 8,
   },
 });
 
