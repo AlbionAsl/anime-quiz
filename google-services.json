@@ -1,0 +1,98 @@
+{
+  "project_info": {
+    "project_number": "108288016848",
+    "project_id": "animequiz-d1890",
+    "storage_bucket": "animequiz-d1890.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:108288016848:android:6c3b36e4013177be3a39d5",
+        "android_client_info": {
+          "package_name": "com.bluefiremonkey.DAILYQUIZ"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "108288016848-1mtvl69gp04blpo8g5q4i3ou3fit36kl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bluefiremonkey.DAILYQUIZ",
+            "certificate_hash": "d6fdab83e8de3fd5c6e6ac92350eb902a0a5fa7f"
+          }
+        },
+        {
+          "client_id": "108288016848-cr589bjgpku1sa85temvn01af93osdm7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5i7KjUdc2iHMIdLT1MHjwNe4OyJwxQ_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "108288016848-2p10qmti6aoqcsma9km71ap5fji8725n.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "108288016848-gbhu5tgrcmkp9cq7333hokj0n3n7cv73.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "d8b03642-170b-4637-abe1-94f89d21af20"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:108288016848:android:28eb3284aaaeb4983a39d5",
+        "android_client_info": {
+          "package_name": "com.taulantasllani.animebuzzzquizzz"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "108288016848-ukb0dib8s91l7215b535kgnf50a61a9a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.taulantasllani.animebuzzzquizzz",
+            "certificate_hash": "d6fdab83e8de3fd5c6e6ac92350eb902a0a5fa7f"
+          }
+        },
+        {
+          "client_id": "108288016848-cr589bjgpku1sa85temvn01af93osdm7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA5i7KjUdc2iHMIdLT1MHjwNe4OyJwxQ_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "108288016848-2p10qmti6aoqcsma9km71ap5fji8725n.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "108288016848-gbhu5tgrcmkp9cq7333hokj0n3n7cv73.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "d8b03642-170b-4637-abe1-94f89d21af20"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
