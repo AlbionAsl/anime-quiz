@@ -1,6 +1,6 @@
-// src/screens/QuizScreen.tsx
+// src/screens/QuizScreen.tsx - WITH 10-SECOND TIMER
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   Dimensions,
   BackHandler,
+  Animated,
 } from 'react-native';
 import {
   Text,
@@ -40,6 +41,8 @@ interface Question {
   correctAnswer: number;
   animeId?: number;
   animeName?: string;
+  likes?: number;
+  dislikes?: number;
 }
 
 interface Answer {
@@ -51,13 +54,17 @@ interface Answer {
 const { width, height } = Dimensions.get('window');
 const isSmallScreen = width < 380;
 
+// Timer constants
+const QUESTION_TIME_LIMIT = 10; // 10 seconds per question
+const FEEDBACK_DISPLAY_TIME = 3000; // 3 seconds to show feedback (increased for voting)
+
 const QuizScreen: React.FC = () => {
   const theme = useTheme();
   const route = useRoute<QuizScreenRouteProp>();
   const navigation = useNavigation<QuizScreenNavigationProp>();
   const { animeId, animeName, date, isPractice = false } = route.params;
 
-  // State declarations
+  // Existing state
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
@@ -69,15 +76,76 @@ const QuizScreen: React.FC = () => {
   const [showExitDialog, setShowExitDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Timer state
+  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME_LIMIT);
+  const [isTimeUp, setIsTimeUp] = useState(false);
+  const [timerActive, setTimerActive] = useState(false);
+  
+  // Like/Dislike state
+  const [hasVoted, setHasVoted] = useState(false);
+  const [voteType, setVoteType] = useState<'like' | 'dislike' | null>(null);
+  
+  // Timer refs
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerProgress = useRef(new Animated.Value(0)).current;
+
   // Determine if this is today's quiz
   const todayDate = getUTCDateString();
   const isToday = !date || date === todayDate;
-  const actualIsPractice = isPractice || !isToday; // If not today, it's automatically practice
+  const actualIsPractice = isPractice || !isToday;
 
+  // Timer effect
+  useEffect(() => {
+    if (timerActive && timeLeft > 0 && !showFeedback && !isTimeUp) {
+      timerRef.current = setTimeout(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            // Time's up!
+            setIsTimeUp(true);
+            setTimerActive(false);
+            handleTimeUp();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [timeLeft, timerActive, showFeedback, isTimeUp]);
+
+  const getQuizModeIcon = () => {
+    return actualIsPractice ? 'school' : 'trophy';
+  };
+
+  // Timer progress animation
+  useEffect(() => {
+    const progress = 1 - (timeLeft / QUESTION_TIME_LIMIT);
+    Animated.timing(timerProgress, {
+      toValue: progress,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+  }, [timeLeft, timerProgress]);
+
+  // Reset timer when question changes
+  useEffect(() => {
+    if (questions.length > 0 && !showResults) {
+      resetTimer();
+      // CRITICAL: Immediately reset vote state when question changes
+      setHasVoted(false);
+      setVoteType(null);
+    }
+  }, [currentQuestionIndex, questions.length, showResults]);
+
+  // Main useEffect for fetching questions and handling back button
   useEffect(() => {
     fetchQuestions();
 
-    // Handle hardware back button
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (!showResults) {
         setShowExitDialog(true);
@@ -86,8 +154,62 @@ const QuizScreen: React.FC = () => {
       return false;
     });
 
-    return () => backHandler.remove();
+    return () => {
+      backHandler.remove();
+      cleanupTimer();
+    };
   }, [showResults]);
+
+  const resetTimer = () => {
+    setTimeLeft(QUESTION_TIME_LIMIT);
+    setIsTimeUp(false);
+    setTimerActive(true);
+    timerProgress.setValue(0);
+    
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+  };
+
+  const cleanupTimer = () => {
+    setTimerActive(false);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleTimeUp = () => {
+    console.log('⏰ Time is up for question', currentQuestionIndex + 1);
+    
+    // Record the answer as incorrect (no selection)
+    const currentQuestion = questions[currentQuestionIndex];
+    const newAnswer: Answer = {
+      questionId: currentQuestion.id,
+      selectedOption: -1, // -1 indicates no answer due to timeout
+      isCorrect: false,
+    };
+
+    const updatedAnswers = [...answers, newAnswer];
+    setAnswers(updatedAnswers);
+    setShowFeedback(true);
+
+    // Auto-advance to next question after showing feedback
+    setTimeout(() => {
+      // Clear vote state BEFORE advancing to prevent visual bleed-through
+      setHasVoted(false);
+      setVoteType(null);
+      
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex(currentQuestionIndex + 1);
+        setSelectedOption(null);
+        setShowFeedback(false);
+      } else {
+        // Last question - submit quiz
+        submitQuiz(updatedAnswers);
+      }
+    }, FEEDBACK_DISPLAY_TIME);
+  };
 
   const fetchQuestions = async () => {
     try {
@@ -123,7 +245,6 @@ const QuizScreen: React.FC = () => {
       const category = animeId === null ? 'all' : animeId.toString();
       const dailyQuestionId = `${targetDate}_${category}`;
 
-      // Try to get pre-generated questions for this date
       const dailyQuestionDoc = await getDoc(
         doc(firestore, 'dailyQuestions', dailyQuestionId)
       );
@@ -133,7 +254,6 @@ const QuizScreen: React.FC = () => {
         return data.questions || [];
       }
 
-      // If no pre-generated questions exist for this date, return empty array
       console.warn(`No questions found for ${category} on ${targetDate}`);
       return [];
     } catch (error) {
@@ -143,8 +263,14 @@ const QuizScreen: React.FC = () => {
   };
 
   const handleSelectOption = (optionIndex: number) => {
-    if (selectedOption !== null || showFeedback) return;
+    // Prevent selection if time is up or feedback is already showing
+    if (selectedOption !== null || showFeedback || isTimeUp) return;
 
+    console.log('🎯 Option selected:', optionIndex);
+    
+    // Stop the timer
+    cleanupTimer();
+    
     setSelectedOption(optionIndex);
     setShowFeedback(true);
 
@@ -163,6 +289,10 @@ const QuizScreen: React.FC = () => {
 
     // Auto-advance after showing feedback
     setTimeout(() => {
+      // Clear vote state BEFORE advancing to prevent visual bleed-through
+      setHasVoted(false);
+      setVoteType(null);
+      
       if (currentQuestionIndex < questions.length - 1) {
         setCurrentQuestionIndex(currentQuestionIndex + 1);
         setSelectedOption(null);
@@ -171,11 +301,13 @@ const QuizScreen: React.FC = () => {
         // Last question - submit quiz
         submitQuiz(updatedAnswers);
       }
-    }, 1500); // Show feedback for 1.5 seconds
+    }, FEEDBACK_DISPLAY_TIME);
   };
 
   const submitQuiz = async (finalAnswers: Answer[]) => {
     setSubmitting(true);
+    cleanupTimer(); // Make sure timer is stopped
+    
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('User not authenticated');
@@ -195,7 +327,7 @@ const QuizScreen: React.FC = () => {
         totalQuestions: questions.length,
         completedAt: new Date(),
         answers: finalAnswers,
-        isPractice: actualIsPractice, // Mark as practice if needed
+        isPractice: actualIsPractice,
       });
 
       // Only update user statistics and rankings if it's not practice mode
@@ -223,6 +355,7 @@ const QuizScreen: React.FC = () => {
   };
 
   const handleExit = () => {
+    cleanupTimer();
     setShowExitDialog(false);
     navigation.goBack();
   };
@@ -234,8 +367,164 @@ const QuizScreen: React.FC = () => {
     return 'Ranked Quiz';
   };
 
-  const getQuizModeIcon = () => {
-    return actualIsPractice ? 'school' : 'trophy';
+  const handleLikeDislike = async (type: 'like' | 'dislike') => {
+    if (hasVoted) return;
+    
+    try {
+      const currentQuestion = questions[currentQuestionIndex];
+      const questionRef = doc(firestore, 'questions', currentQuestion.id);
+      
+      // Update the field in Firebase
+      const fieldToUpdate = type === 'like' ? 'likes' : 'dislikes';
+      await updateDoc(questionRef, {
+        [fieldToUpdate]: increment(1)
+      });
+      
+      // Update local state
+      setHasVoted(true);
+      setVoteType(type);
+      
+      // Update the local question data for immediate UI feedback
+      const updatedQuestions = [...questions];
+      const currentQ = updatedQuestions[currentQuestionIndex];
+      if (type === 'like') {
+        currentQ.likes = (currentQ.likes || 0) + 1;
+      } else {
+        currentQ.dislikes = (currentQ.dislikes || 0) + 1;
+      }
+      setQuestions(updatedQuestions);
+      
+      console.log(`👍 ${type} recorded for question:`, currentQuestion.id);
+      
+    } catch (error) {
+      console.error(`Error recording ${type}:`, error);
+    }
+  };
+
+  const renderLikeDislikeButtons = () => {
+    if (!showFeedback) return null;
+    
+    const currentQuestion = questions[currentQuestionIndex];
+    const likes = currentQuestion.likes || 0;
+    const dislikes = currentQuestion.dislikes || 0;
+    
+    return (
+      <View 
+        key={`like-dislike-${currentQuestion.id}-${currentQuestionIndex}`}
+        style={styles.likeDislikeContainer}
+      >
+        <Text style={[styles.feedbackPrompt, { color: theme.colors.onSurface }]}>
+          How was this question?
+        </Text>
+        
+        <View style={styles.likeDislikeButtons}>
+          <Surface 
+            style={[
+              styles.likeButton,
+              voteType === 'like' && hasVoted && styles.likeButtonActive,
+              { backgroundColor: (voteType === 'like' && hasVoted) ? '#4CAF50' : theme.colors.surface }
+            ]} 
+            elevation={1}
+          >
+            <Button
+              mode="text"
+              onPress={() => handleLikeDislike('like')}
+              disabled={hasVoted}
+              style={styles.voteButton}
+              labelStyle={[
+                styles.voteButtonText,
+                { color: (voteType === 'like' && hasVoted) ? 'white' : theme.colors.onSurface }
+              ]}
+            >
+              <MaterialCommunityIcons 
+                name="thumb-up" 
+                size={20} 
+                color={(voteType === 'like' && hasVoted) ? 'white' : theme.colors.onSurface}
+              />
+            </Button>
+          </Surface>
+          
+          <Surface 
+            style={[
+              styles.dislikeButton,
+              voteType === 'dislike' && hasVoted && styles.dislikeButtonActive,
+              { backgroundColor: (voteType === 'dislike' && hasVoted) ? '#F44336' : theme.colors.surface }
+            ]} 
+            elevation={1}
+          >
+            <Button
+              mode="text"
+              onPress={() => handleLikeDislike('dislike')}
+              disabled={hasVoted}
+              style={styles.voteButton}
+              labelStyle={[
+                styles.voteButtonText,
+                { color: (voteType === 'dislike' && hasVoted) ? 'white' : theme.colors.onSurface }
+              ]}
+            >
+              <MaterialCommunityIcons 
+                name="thumb-down" 
+                size={20} 
+                color={(voteType === 'dislike' && hasVoted) ? 'white' : theme.colors.onSurface}
+              />
+            </Button>
+          </Surface>
+        </View>
+      </View>
+    );
+  };
+
+  // Render timer bar
+  const renderTimerBar = () => {
+    const isRunning = timerActive && !showFeedback && !isTimeUp;
+    const barColor = isTimeUp ? theme.colors.error : 
+                   timeLeft <= 3 ? '#FF6B6B' : 
+                   timeLeft <= 5 ? '#FFA500' : 
+                   theme.colors.primary;
+
+    return (
+      <View style={styles.timerContainer}>
+        <View style={styles.timerInfo}>
+          <View style={styles.timerTextContainer}>
+            {isTimeUp ? (
+              <View style={styles.timeUpContainer}>
+                <MaterialCommunityIcons 
+                  name="clock-alert-outline" 
+                  size={16} 
+                  color={theme.colors.error} 
+                />
+                <Text style={[styles.timeUpText, { color: theme.colors.error }]}>
+                  TIME UP!
+                </Text>
+              </View>
+            ) : (
+              <Text style={[
+                styles.timerText, 
+                { color: timeLeft <= 5 ? '#FF6B6B' : theme.colors.onSurface },
+                timeLeft <= 3 && styles.urgentTimer
+              ]}>
+                {timeLeft}s
+              </Text>
+            )}
+          </View>
+        </View>
+        
+        <View style={[styles.timerBarBackground, { backgroundColor: theme.colors.outline }]}>
+          <Animated.View
+            style={[
+              styles.timerBarFill,
+              {
+                backgroundColor: barColor,
+                width: timerProgress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          />
+        </View>
+      </View>
+    );
   };
 
   if (loading) {
@@ -268,7 +557,6 @@ const QuizScreen: React.FC = () => {
             <Text style={styles.resultTitle}>Quiz Complete!</Text>
             <Text style={styles.categoryText}>{animeName}</Text>
             
-            {/* Show quiz mode */}
             <Chip 
               icon={getQuizModeIcon()}
               style={[
@@ -295,7 +583,6 @@ const QuizScreen: React.FC = () => {
             <Button
               mode="contained"
               onPress={() => {
-                // Navigate back to CategoryScreen instead of PlayHome
                 navigation.goBack();
               }}
               style={styles.finishButton}
@@ -353,7 +640,6 @@ const QuizScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <Surface style={styles.questionCard} elevation={2}>
-          {/* Anime name chip - only show if it's not "All Anime" category */}
           {currentQuestion.animeName && currentQuestion.animeName !== 'All Anime' && (
             <View style={styles.animeChipContainer}>
               <Chip 
@@ -377,6 +663,7 @@ const QuizScreen: React.FC = () => {
             const isCorrect = index === currentQuestion.correctAnswer;
             const showCorrect = showFeedback && isCorrect;
             const showIncorrect = showFeedback && isSelected && !isCorrect;
+            const showCorrectWhenTimeUp = isTimeUp && isCorrect && !isSelected;
 
             return (
               <Surface
@@ -385,6 +672,7 @@ const QuizScreen: React.FC = () => {
                   styles.optionCard,
                   showCorrect && styles.correctOption,
                   showIncorrect && styles.incorrectOption,
+                  showCorrectWhenTimeUp && styles.correctOption,
                 ]}
                 elevation={1}
               >
@@ -394,11 +682,11 @@ const QuizScreen: React.FC = () => {
                   style={styles.optionButton}
                   labelStyle={[
                     styles.optionText,
-                    (showCorrect || showIncorrect) && styles.feedbackOptionText,
+                    (showCorrect || showIncorrect || showCorrectWhenTimeUp) && styles.feedbackOptionText,
                     isSmallScreen && styles.optionTextSmall,
                   ]}
                   contentStyle={styles.optionContent}
-                  disabled={showFeedback || submitting}
+                  disabled={showFeedback || submitting || isTimeUp}
                 >
                   <View style={styles.optionContentWrapper}>
                     <Text style={[styles.optionLetter, isSmallScreen && styles.optionLetterSmall]}>
@@ -413,7 +701,13 @@ const QuizScreen: React.FC = () => {
             );
           })}
         </View>
+
+        {/* Like/Dislike Buttons - Show during feedback */}
+        {renderLikeDislikeButtons()}
       </ScrollView>
+
+      {/* Timer Bar - Always at bottom */}
+      {renderTimerBar()}
 
       <Portal>
         <Dialog visible={showExitDialog} onDismiss={() => setShowExitDialog(false)}>
@@ -488,7 +782,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingBottom: 80, // Space for timer bar
   },
   questionCard: {
     padding: 20,
@@ -581,6 +875,107 @@ const styles = StyleSheet.create({
   feedbackOptionText: {
     fontWeight: '600',
   },
+  
+  // Timer Styles
+  timerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  timerInfo: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  timerTextContainer: {
+    minHeight: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timerText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  urgentTimer: {
+    fontSize: 20,
+    color: '#FF6B6B',
+  },
+  timeUpContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timeUpText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  timerBarBackground: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  timerBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+
+  // Like/Dislike Styles
+  likeDislikeContainer: {
+    marginTop: 24,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  feedbackPrompt: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  likeDislikeButtons: {
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'center',
+  },
+  likeButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+    minWidth: 80,
+  },
+  dislikeButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+    minWidth: 80,
+  },
+  likeButtonActive: {
+    backgroundColor: '#4CAF50',
+  },
+  dislikeButtonActive: {
+    backgroundColor: '#F44336',
+  },
+  voteButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minHeight: 40,
+  },
+  voteButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  feedbackTimer: {
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+
+  // Results Styles
   resultsWrapper: {
     flex: 1,
     justifyContent: 'center',
@@ -621,7 +1016,7 @@ const styles = StyleSheet.create({
   scoreNumber: {
     fontSize: 48,
     fontWeight: 'bold',
-    color: '#6C5CE7', // Primary color
+    color: '#6C5CE7',
   },
   scoreDivider: {
     fontSize: 36,

@@ -201,7 +201,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       const allCategory: AnimeItem = {
         id: null,
         title: 'All Anime',
-        coverImage: 'https://via.placeholder.com/300x450/6C5CE7/FFFFFF?text=ALL+ANIME',
+        coverImage: require('../../assets/all-anime.jpg'),
         questionCount: animeWithQuestions.reduce((sum, anime) => sum + anime.questionCount, 0)
       };
 
