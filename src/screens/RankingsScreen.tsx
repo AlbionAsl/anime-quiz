@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   RefreshControl,
   Dimensions,
@@ -23,6 +22,7 @@ import {
   Avatar,
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import {
@@ -32,6 +32,7 @@ import {
   getMonthString,
 } from '../utils/rankingUtils';
 import { getUTCDateString } from '../utils/quizUtils';
+import { responsiveFontSize, responsiveSpacing } from '../utils/responsive';
 
 const { width } = Dimensions.get('window');
 const isSmallScreen = width < 380;
@@ -64,6 +65,7 @@ interface UserRankData {
 
 const RankingsScreen: React.FC = () => {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const currentUser = auth.currentUser;
 
   // State
@@ -335,7 +337,7 @@ const RankingsScreen: React.FC = () => {
   // OPTIMIZED: Show progressive loading - header first, then content
   if (loading && !refreshing && categoriesLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <Surface style={styles.header} elevation={2}>
           <Text style={styles.title}>Rankings</Text>
           <View style={styles.categoriesLoadingContainer}>
@@ -350,13 +352,14 @@ const RankingsScreen: React.FC = () => {
             Loading rankings...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Surface style={styles.header} elevation={2}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={{ paddingTop: insets.top }}>
+        <Surface style={styles.header} elevation={2}>
         <Text style={styles.title}>Rankings</Text>
         
         {/* Category Selector */}
@@ -570,7 +573,8 @@ const RankingsScreen: React.FC = () => {
           )}
         </ScrollView>
       )}
-    </SafeAreaView>
+    </View>
+    </View>
   );
 };
 

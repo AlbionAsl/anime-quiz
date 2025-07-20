@@ -1,10 +1,11 @@
-// App.tsx - OPTIMIZED VERSION
+// App.tsx - SAFE AREA OPTIMIZED VERSION
 
 import React, { useEffect } from 'react';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, View, StyleSheet } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import customDarkTheme from './src/themes/theme';
 import { preloadAnimeData } from './src/utils/animeCacheUtils';
@@ -14,13 +15,14 @@ const App: React.FC = () => {
     // Initialize app optimizations
     const initializeApp = async () => {
       try {
-        // Hide navigation bar on Android
+        // Hide navigation bar on Android for immersive experience
         if (Platform.OS === 'android') {
-          await NavigationBar.setVisibilityAsync('hidden');
+          // Set navigation bar to be translucent
+          await NavigationBar.setBackgroundColorAsync('transparent');
+          await NavigationBar.setButtonStyleAsync('light');
         }
 
         // OPTIMIZATION: Preload anime data in background
-        // This helps reduce loading time when user reaches PlayScreen
         console.log('🚀 Starting background data preload...');
         preloadAnimeData().catch(error => {
           console.warn('⚠️  Background preload failed:', error);
@@ -35,13 +37,15 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <PaperProvider theme={customDarkTheme}>
-      {/* OPTIMIZATION: Ensure consistent background from the start */}
-      <View style={[styles.container, { backgroundColor: customDarkTheme.colors.background }]}>
-        <StatusBar style="light" hidden={true} />
-        <AppNavigator />
-      </View>
-    </PaperProvider>
+    <SafeAreaProvider>
+      <PaperProvider theme={customDarkTheme}>
+        {/* OPTIMIZATION: Ensure consistent background from the start */}
+        <View style={[styles.container, { backgroundColor: customDarkTheme.colors.background }]}>
+          <StatusBar style="light" backgroundColor="transparent" translucent />
+          <AppNavigator />
+        </View>
+      </PaperProvider>
+    </SafeAreaProvider>
   );
 };
 

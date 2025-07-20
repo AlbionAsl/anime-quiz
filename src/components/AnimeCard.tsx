@@ -1,4 +1,4 @@
-// src/components/AnimeCard.tsx
+// src/components/AnimeCard.tsx - RESPONSIVE VERSION
 
 import React from 'react';
 import {
@@ -12,9 +12,9 @@ import {
   Card,
   Text,
   useTheme,
-  IconButton,
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { getCardDimensions, getGridColumns, responsiveFontSize, responsiveSpacing } from '../utils/responsive';
 
 interface AnimeCardProps {
   anime: {
@@ -28,12 +28,6 @@ interface AnimeCardProps {
   totalQuestions?: number;
 }
 
-const { width } = Dimensions.get('window');
-const isSmallScreen = width < 380;
-const cardWidth = isSmallScreen 
-  ? (width - 32) / 2 - 8 
-  : (width - 48) / 3 - 8;
-
 const AnimeCard: React.FC<AnimeCardProps> = ({
   anime,
   onPress,
@@ -42,6 +36,8 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
   totalQuestions = 10,
 }) => {
   const theme = useTheme();
+  const numColumns = getGridColumns(3);
+  const cardWidth = getCardDimensions(numColumns, 16, 8);
 
   const imageSource = typeof anime.coverImage === 'string' 
     ? { uri: anime.coverImage }
@@ -50,7 +46,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Card style={[styles.card, { width: cardWidth }]}>
-        <View style={styles.imageContainer}>
+        <View style={[styles.imageContainer, { height: cardWidth * 1.4 }]}>
           <Image
             source={imageSource}
             style={styles.image}
@@ -61,7 +57,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
             <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
               <MaterialCommunityIcons
                 name="check-circle"
-                size={40}
+                size={responsiveSpacing(40)}
                 color={theme.colors.primary}
               />
               <Text style={styles.scoreText}>
@@ -73,7 +69,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
           
           {anime.id === null && (
             <View style={[styles.allBadge, { backgroundColor: theme.colors.primary }]}>
-              <MaterialCommunityIcons name="infinity" size={20} color="white" />
+              <MaterialCommunityIcons name="infinity" size={responsiveSpacing(20)} color="white" />
             </View>
           )}
         </View>
@@ -94,7 +90,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    marginVertical: 4,
+    marginVertical: responsiveSpacing(4),
     elevation: 3,
     borderRadius: 12,
     overflow: 'hidden',
@@ -102,7 +98,6 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
     width: '100%',
-    height: cardWidth * 1.4,
   },
   image: {
     width: '100%',
@@ -119,34 +114,34 @@ const styles = StyleSheet.create({
   },
   scoreText: {
     color: 'white',
-    fontSize: 24,
+    fontSize: responsiveFontSize(24),
     fontWeight: 'bold',
-    marginTop: 8,
+    marginTop: responsiveSpacing(8),
   },
   playedText: {
     color: 'white',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: responsiveFontSize(12),
+    marginTop: responsiveSpacing(4),
     opacity: 0.9,
   },
   allBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: responsiveSpacing(8),
+    right: responsiveSpacing(8),
     borderRadius: 20,
-    padding: 8,
+    padding: responsiveSpacing(8),
   },
   content: {
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: responsiveSpacing(12),
+    paddingHorizontal: responsiveSpacing(8),
     minHeight: 60,
     justifyContent: 'center',
   },
   title: {
-    fontSize: isSmallScreen ? 13 : 14,
+    fontSize: responsiveFontSize(14),
     fontWeight: '600',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: responsiveFontSize(18),
   },
 });
 

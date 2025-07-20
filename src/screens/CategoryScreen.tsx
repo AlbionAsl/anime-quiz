@@ -1,14 +1,13 @@
-// src/screens/CategoryScreen.tsx - OPTIMIZED VERSION
+// src/screens/CategoryScreen.tsx - SAFE AREA & RESPONSIVE VERSION
 
 import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
-  SafeAreaView,
   RefreshControl,
-  Dimensions,
   TouchableOpacity,
+  Dimensions,
 } from 'react-native';
 import {
   Text,
@@ -21,12 +20,14 @@ import {
   IconButton,
   Divider,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
 import { PlayStackParamList } from '../navigation/PlayNavigator';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { getCardDimensions, responsiveFontSize, responsiveSpacing } from '../utils/responsive';
 
 type CategoryScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Category'>;
 
@@ -68,7 +69,7 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
   const theme = useTheme();
   const navigation = useNavigation<CategoryScreenNavigationProp>();
   const { animeId, animeName } = route.params;
-  
+  const insets = useSafeAreaInsets();
   const [todayQuiz, setTodayQuiz] = useState<QuizDate | null>(null);
   const [pastQuizzes, setPastQuizzes] = useState<QuizDate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -322,30 +323,32 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={[styles.loadingText, { color: theme.colors.onBackground }]}>
             Loading quiz dates...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Surface style={styles.header} elevation={2}>
-        <View style={styles.headerTop}>
-          <IconButton
-            icon="arrow-left"
-            size={24}
-            onPress={() => navigation.goBack()}
-          />
-          <Text style={styles.title}>{animeName}</Text>
-          <View style={{ width: 48 }} />
-        </View>
-      </Surface>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={{ paddingTop: insets.top }}>
+        <Surface style={styles.header} elevation={2}>
+          <View style={styles.headerTop}>
+            <IconButton
+              icon="arrow-left"
+              size={24}
+              onPress={() => navigation.goBack()}
+            />
+            <Text style={styles.title}>{animeName}</Text>
+            <View style={{ width: 48 }} />
+          </View>
+        </Surface>
+      </View>
 
       <View style={styles.content}>
         {/* Today's Quiz Section */}
@@ -370,7 +373,10 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
               renderItem={renderPastQuizButton}
               keyExtractor={(item) => item.date}
               numColumns={numColumns}
-              contentContainerStyle={styles.pastQuizzesGrid}
+              contentContainerStyle={[
+                styles.pastQuizzesGrid,
+                { paddingBottom: insets.bottom + responsiveSpacing(20) }
+              ]}
               columnWrapperStyle={styles.gridRow}
               refreshControl={
                 <RefreshControl
@@ -404,11 +410,14 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         visible={!!error}
         onDismiss={() => setError(null)}
         duration={3000}
-        style={{ backgroundColor: theme.colors.error }}
+        style={{ 
+          backgroundColor: theme.colors.error,
+          marginBottom: insets.bottom 
+        }}
       >
         {error}
       </Snackbar>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -422,13 +431,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: responsiveSpacing(16),
+    fontSize: responsiveFontSize(16),
   },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingHorizontal: responsiveSpacing(16),
+    paddingTop: responsiveSpacing(8),
+    paddingBottom: responsiveSpacing(16),
   },
   headerTop: {
     flexDirection: 'row',
@@ -436,57 +445,57 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: {
-    fontSize: 24,
+    fontSize: responsiveFontSize(24),
     fontWeight: 'bold',
     textAlign: 'center',
     flex: 1,
   },
   content: {
     flex: 1,
-    padding: 20,
+    padding: responsiveSpacing(20),
   },
   
   // Today Section Styles
   todaySection: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: responsiveSpacing(30),
   },
   sectionTitle: {
-    fontSize: 28,
+    fontSize: responsiveFontSize(28),
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: responsiveSpacing(8),
     textAlign: 'center',
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     opacity: 0.7,
-    marginBottom: 20,
+    marginBottom: responsiveSpacing(20),
     textAlign: 'center',
   },
   todayButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 24,
+    paddingVertical: responsiveSpacing(8),
+    paddingHorizontal: responsiveSpacing(24),
     borderRadius: 12,
     minWidth: 250,
   },
   todayButtonContent: {
-    paddingVertical: 12,
+    paddingVertical: responsiveSpacing(12),
   },
 
   // Divider Styles
   dividerSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 30,
+    marginVertical: responsiveSpacing(30),
   },
   divider: {
     flex: 1,
     height: 1,
   },
   dividerText: {
-    fontSize: 18,
+    fontSize: responsiveFontSize(18),
     fontWeight: '600',
-    marginHorizontal: 16,
+    marginHorizontal: responsiveSpacing(16),
     opacity: 0.8,
   },
 
@@ -495,27 +504,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pastSectionSubtitle: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     opacity: 0.7,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: responsiveSpacing(20),
   },
   pastQuizzesGrid: {
     alignItems: 'center',
   },
   gridRow: {
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    marginBottom: 12,
+    paddingHorizontal: responsiveSpacing(8),
+    marginBottom: responsiveSpacing(12),
   },
   pastQuizButton: {
     height: 100,
-    marginHorizontal: 4,
+    marginHorizontal: responsiveSpacing(4),
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: responsiveSpacing(12),
+    paddingHorizontal: responsiveSpacing(8),
   },
   activeButton: {
     backgroundColor: '#6C5CE7', // Primary color
@@ -527,17 +536,17 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonDateText: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     fontWeight: '600',
     textAlign: 'center',
     color: 'white',
   },
   completedDateText: {
     color: '#6C5CE7',
-    marginBottom: 4,
+    marginBottom: responsiveSpacing(4),
   },
   buttonScoreText: {
-    fontSize: 12,
+    fontSize: responsiveFontSize(12),
     fontWeight: '400',
     textAlign: 'center',
     color: '#6C5CE7',
@@ -549,20 +558,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: responsiveSpacing(40),
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: responsiveFontSize(18),
     fontWeight: '600',
     opacity: 0.6,
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: responsiveSpacing(16),
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     opacity: 0.4,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: responsiveSpacing(8),
   },
 });
 

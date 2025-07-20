@@ -1,12 +1,10 @@
-// src/screens/PlayScreen.tsx - OPTIMIZED VERSION
+// src/screens/PlayScreen.tsx - SAFE AREA OPTIMIZED VERSION
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
-  SafeAreaView,
-  Dimensions,
   RefreshControl,
 } from 'react-native';
 import {
@@ -16,6 +14,7 @@ import {
   ActivityIndicator,
   Snackbar,
 } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -25,6 +24,7 @@ import AnimeCard from '../components/AnimeCard';
 import DailyQuizStatus from '../components/DailyQuizStatus';
 import { getUTCDateString, getTimeUntilReset } from '../utils/quizUtils';
 import { getAnimeWithQuestionsCached } from '../utils/animeCacheUtils';
+import { getGridColumns, responsiveFontSize, responsiveSpacing } from '../utils/responsive';
 
 type PlayScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'PlayHome'>;
 
@@ -65,13 +65,11 @@ let animeCache: {
   ttl: 5 * 60 * 1000
 };
 
-const { width } = Dimensions.get('window');
-const isSmallScreen = width < 380;
-
 type PlayScreenProps = StackScreenProps<PlayStackParamList, 'PlayHome'>;
 
 const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<PlayScreenNavigationProp>();
   const [animeList, setAnimeList] = useState<AnimeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +78,9 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   const [dailyAttempts, setDailyAttempts] = useState<Record<string, DailyAttempt>>({});
   const [timeUntilReset, setTimeUntilReset] = useState(getTimeUntilReset());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Responsive grid columns
+  const numColumns = getGridColumns(3);
 
   // Memoize today's date to avoid recalculation
   const todayDate = useMemo(() => getUTCDateString(), []);
@@ -306,7 +307,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   // OPTIMIZED: Better loading screen with consistent background
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <Surface style={styles.header} elevation={2}>
           <Text style={styles.title}>Anime Quiz</Text>
           <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
@@ -318,34 +319,39 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
             Loading anime...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Surface style={styles.header} elevation={2}>
-        <Text style={styles.title}>Anime Quiz</Text>
-        <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
-        {animeList.length > 1 && (
-          <Text style={styles.animeCount}>
-            {animeList.length - 1} anime available with questions
-          </Text>
-        )}
-      </Surface>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={{ paddingTop: insets.top }}>
+        <Surface style={styles.header} elevation={2}>
+          <Text style={styles.title}>Anime Quiz</Text>
+          <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
+          {animeList.length > 1 && (
+            <Text style={styles.animeCount}>
+              {animeList.length - 1} anime available with questions
+            </Text>
+          )}
+        </Surface>
 
-      <DailyQuizStatus 
-        attempts={Object.values(dailyAttempts)} 
-        timeUntilReset={timeUntilReset}
-      />
+        <DailyQuizStatus 
+          attempts={Object.values(dailyAttempts)} 
+          timeUntilReset={timeUntilReset}
+        />
+      </View>
 
       <FlatList
         data={animeList}
         renderItem={renderAnimeCard}
         keyExtractor={(item) => item.id?.toString() || 'all'}
-        numColumns={isSmallScreen ? 2 : 3}
-        columnWrapperStyle={isSmallScreen ? styles.row : styles.rowLarge}
-        contentContainerStyle={styles.listContainer}
+        numColumns={numColumns}
+        columnWrapperStyle={numColumns > 1 ? styles.row : undefined}
+        contentContainerStyle={[
+          styles.listContainer,
+          { paddingBottom: insets.bottom + responsiveSpacing(20) }
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -364,18 +370,16 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         maxToRenderPerBatch={10}
         windowSize={10}
         initialNumToRender={6}
-        getItemLayout={(data, index) => ({
-          length: 180, // Approximate item height
-          offset: 180 * Math.floor(index / (isSmallScreen ? 2 : 3)),
-          index,
-        })}
       />
 
       <Snackbar
         visible={!!error}
         onDismiss={() => setError(null)}
         duration={3000}
-        style={{ backgroundColor: theme.colors.error }}
+        style={{ 
+          backgroundColor: theme.colors.error,
+          marginBottom: insets.bottom 
+        }}
       >
         {error}
       </Snackbar>
@@ -384,11 +388,14 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
         visible={!!successMessage}
         onDismiss={() => setSuccessMessage(null)}
         duration={3000}
-        style={{ backgroundColor: theme.colors.primary }}
+        style={{ 
+          backgroundColor: theme.colors.primary,
+          marginBottom: insets.bottom 
+        }}
       >
         {successMessage}
       </Snackbar>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -397,42 +404,38 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingHorizontal: responsiveSpacing(16),
+    paddingTop: responsiveSpacing(16),
+    paddingBottom: responsiveSpacing(12),
   },
   title: {
-    fontSize: 28,
+    fontSize: responsiveFontSize(28),
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 4,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     textAlign: 'center',
     opacity: 0.8,
   },
   animeCount: {
-    fontSize: 12,
+    fontSize: responsiveFontSize(12),
     textAlign: 'center',
     opacity: 0.6,
     marginTop: 4,
   },
   listContainer: {
-    paddingHorizontal: 8,
-    paddingBottom: 20,
+    paddingHorizontal: responsiveSpacing(8),
+    paddingBottom: responsiveSpacing(20),
   },
   row: {
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-  },
-  rowLarge: {
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    paddingHorizontal: responsiveSpacing(8),
   },
   cardWrapper: {
     flex: 1,
-    padding: 4,
+    padding: responsiveSpacing(4),
   },
   loadingContainer: {
     flex: 1,
@@ -440,25 +443,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: responsiveSpacing(16),
+    fontSize: responsiveFontSize(16),
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: responsiveSpacing(20),
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: responsiveFontSize(16),
     opacity: 0.6,
     textAlign: 'center',
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: responsiveFontSize(14),
     opacity: 0.4,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: responsiveSpacing(8),
   },
 });
 
