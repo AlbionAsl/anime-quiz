@@ -91,8 +91,14 @@ const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
 /**
  * Get unused questions for a category
  */
+// functions/src/index.ts - Key fixes for handling the categories array
+
+/**
+ * Get unused questions for a category
+ * FIXED: Handle missing categories array gracefully
+ */
 const getUnusedQuestions = async (
-  category: string,
+  category: string, // "all" or animeId as string
   targetDate: string,
   limit: number = 10
 ): Promise<Question[]> => {
@@ -116,32 +122,34 @@ const getUnusedQuestions = async (
       allQuestions.push({
         id: doc.id,
         question: data.question,
-        options: data.options,
+        options: data.options, // Already in object format
         correctAnswer: data.correctAnswer,
         animeId: data.animeId,
         animeName: data.animeName,
         random: data.random,
-        // FIX: Remove undefined fields when storing
-        ...(data.lastUsed && { lastUsed: data.lastUsed.toDate() }),
-        ...(data.timesUsed !== undefined && { timesUsed: data.timesUsed }),
-        ...(data.usedDates && { usedDates: data.usedDates }),
-        ...(data.categories && { categories: data.categories }),
+        // Handle potentially missing fields
+        lastUsed: data.lastUsed ? (typeof data.lastUsed === 'string' ? new Date(data.lastUsed) : data.lastUsed.toDate()) : undefined,
+        timesUsed: data.timesUsed || 0,
+        usedDates: data.usedDates || [],
+        categories: data.categories || [], // Default to empty array if missing
       });
     });
 
-    // Filter unused questions
+    // Filter unused questions - handle missing categories field
     const unusedQuestions = allQuestions.filter((q) => {
+      // If categories field doesn't exist or is empty, the question is unused
       if (!q.categories || q.categories.length === 0) {
-        return true; // Never used
+        return true;
       }
-      return !q.categories.includes(category) && !q.categories.includes('all');
+      // Check if this question has been used in the current quiz category
+      return !q.categories.includes(category);
     });
 
     console.log(`Found ${unusedQuestions.length} unused questions for category ${category}`);
 
     if (unusedQuestions.length < limit) {
       console.warn(`Not enough unused questions for category ${category}. Need ${limit}, have ${unusedQuestions.length}`);
-
+      
       if (unusedQuestions.length > 0) {
         return unusedQuestions.slice(0, Math.min(limit, unusedQuestions.length));
       } else {
@@ -154,6 +162,55 @@ const getUnusedQuestions = async (
   } catch (error) {
     console.error('Error getting unused questions:', error);
     return [];
+  }
+};
+
+/**
+ * Mark questions as used - Initialize categories array if it doesn't exist
+ */
+const markQuestionsAsUsed = async (
+  questionIds: string[],
+  category: string,
+  date: string
+): Promise<void> => {
+  try {
+    const batch = db.batch();
+    const now = new Date();
+
+    for (const questionId of questionIds) {
+      const questionRef = db.collection('questions').doc(questionId);
+      
+      // First check if the document has categories array
+      const doc = await questionRef.get();
+      if (doc.exists) {
+        const data = doc.data();
+        
+        if (!data?.categories) {
+          // If categories doesn't exist, set it as an array with current category
+          batch.set(questionRef, {
+            categories: [category]
+          }, { merge: true });
+        } else {
+          // If it exists, use arrayUnion
+          batch.update(questionRef, {
+            categories: FieldValue.arrayUnion(category)
+          });
+        }
+        
+        // Update other fields
+        batch.update(questionRef, {
+          lastUsed: now,
+          timesUsed: FieldValue.increment(1),
+          usedDates: FieldValue.arrayUnion(date),
+        });
+      }
+    }
+
+    await batch.commit();
+    console.log(`Marked ${questionIds.length} questions as used for category ${category} on ${date}`);
+  } catch (error) {
+    console.error('Error marking questions as used:', error);
+    throw error;
   }
 };
 
@@ -212,36 +269,6 @@ const selectQuestionsWithSeed = (questions: Question[], count: number, seed: num
   return shuffled.slice(0, count);
 };
 
-/**
- * Mark questions as used - Updated for embedded system
- */
-const markQuestionsAsUsed = async (
-  questionIds: string[],
-  category: string,
-  date: string
-): Promise<void> => {
-  try {
-    const batch = db.batch();
-    const now = new Date();
-
-    for (const questionId of questionIds) {
-      const questionRef = db.collection('questions').doc(questionId);
-      
-      batch.update(questionRef, {
-        lastUsed: now,
-        timesUsed: FieldValue.increment(1),
-        usedDates: FieldValue.arrayUnion(date),
-        categories: FieldValue.arrayUnion(category)
-      });
-    }
-
-    await batch.commit();
-    console.log(`Marked ${questionIds.length} questions as used for category ${category} on ${date}`);
-  } catch (error) {
-    console.error('Error marking questions as used:', error);
-    throw error;
-  }
-};
 
 /**
  * Pre-generate questions for all categories for a specific date
