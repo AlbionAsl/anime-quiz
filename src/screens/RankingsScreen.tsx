@@ -457,25 +457,30 @@ const RankingsScreen: React.FC = () => {
 
       {/* User Rank Card */}
       {userRank && currentUser && (
-        <Surface style={styles.userRankCard} elevation={2}>
-          <View style={styles.userRankContent}>
-            <MaterialCommunityIcons
-              name="account-circle"
-              size={24}
-              color={theme.colors.primary}
-            />
-            <Text style={styles.userRankText}>Your Rank</Text>
-            <Text style={styles.userRankValue}>
-              #{userRank.rank} / {userRank.totalPlayers}
-            </Text>
-            <Text style={styles.userScoreText}>
-              {rankingType === 'totalScore' 
-                ? `Score: ${userRank.score}`
-                : `Average: ${userRank.averageScore.toFixed(1)}%`
-              }
-            </Text>
-          </View>
-        </Surface>
+        // Only show user rank card if:
+        // 1. Ranking type is totalScore, OR
+        // 2. Ranking type is averageScore AND user meets the minimum requirements
+        (rankingType === 'totalScore' || (rankingType === 'averageScore' && isAverageScoreAvailable())) && (
+          <Surface style={styles.userRankCard} elevation={2}>
+            <View style={styles.userRankContent}>
+              <MaterialCommunityIcons
+                name="account-circle"
+                size={24}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.userRankText}>Your Rank</Text>
+              <Text style={styles.userRankValue}>
+                #{userRank.rank} / {userRank.totalPlayers}
+              </Text>
+              <Text style={styles.userScoreText}>
+                {rankingType === 'totalScore' 
+                  ? `Score: ${userRank.score}`
+                  : `Average: ${userRank.averageScore.toFixed(1)}%`
+                }
+              </Text>
+            </View>
+          </Surface>
+        )
       )}
 
       {/* Leaderboard Content */}
