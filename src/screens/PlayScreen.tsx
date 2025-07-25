@@ -1,4 +1,4 @@
-// src/screens/PlayScreen.tsx - SAFE AREA OPTIMIZED VERSION
+// src/screens/PlayScreen.tsx - WITH TUTORIAL POPUP
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -13,9 +13,12 @@ import {
   useTheme,
   ActivityIndicator,
   Snackbar,
+  Portal,
+  Dialog,
+  Button,
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, setDoc } from 'firebase/firestore';
 import { firestore, auth } from '../utils/firebase';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp, StackScreenProps } from '@react-navigation/stack';
@@ -25,6 +28,7 @@ import DailyQuizStatus from '../components/DailyQuizStatus';
 import { getUTCDateString, getTimeUntilReset } from '../utils/quizUtils';
 import { getAnimeWithQuestionsCached } from '../utils/animeCacheUtils';
 import { getGridColumns, responsiveFontSize, responsiveSpacing } from '../utils/responsive';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 type PlayScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'PlayHome'>;
 
@@ -78,6 +82,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   const [dailyAttempts, setDailyAttempts] = useState<Record<string, DailyAttempt>>({});
   const [timeUntilReset, setTimeUntilReset] = useState(getTimeUntilReset());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showTutorial, setShowTutorial] = useState(false); // NEW: Tutorial state
 
   // Responsive grid columns
   const numColumns = getGridColumns(3);
@@ -85,7 +90,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   // Memoize today's date to avoid recalculation
   const todayDate = useMemo(() => getUTCDateString(), []);
 
-// Handle navigation params and refresh
+  // Handle navigation params and refresh
   useFocusEffect(
     React.useCallback(() => {
       console.log('📱 PlayScreen focused, checking for refresh params...');
@@ -270,11 +275,46 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     }
   }, [getAnimeWithQuestions, checkDailyAttempts]);
 
-  // OPTIMIZED: Initial load with cache
+  // NEW: Check if this is user's first time and show tutorial
+  const checkForFirstTimeUser = useCallback(async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // Check if user has seen tutorial before
+      const tutorialDoc = await getDoc(doc(firestore, 'userPreferences', user.uid));
+      
+      if (!tutorialDoc.exists() || !tutorialDoc.data()?.hasSeenTutorial) {
+        setShowTutorial(true);
+      }
+    } catch (error) {
+      console.log('Error checking tutorial status:', error);
+      // If there's an error, don't show tutorial to avoid annoying user
+    }
+  }, []);
+
+  // NEW: Mark tutorial as seen
+  const handleTutorialComplete = useCallback(async () => {
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await setDoc(doc(firestore, 'userPreferences', user.uid), {
+          hasSeenTutorial: true,
+          tutorialCompletedAt: new Date()
+        }, { merge: true });
+      }
+    } catch (error) {
+      console.log('Error saving tutorial status:', error);
+    }
+    setShowTutorial(false);
+  }, []);
+
+  // OPTIMIZED: Initial load with cache and tutorial check
   useEffect(() => {
     console.log('PlayScreen: Initial load starting');
     fetchAnimes(true); // Use cache on initial load
-  }, [fetchAnimes]);
+    checkForFirstTimeUser(); // NEW: Check if we should show tutorial
+  }, [fetchAnimes, checkForFirstTimeUser]);
 
   // OPTIMIZED: Refresh handler that bypasses cache
   const handleRefresh = useCallback(async () => {
@@ -311,6 +351,52 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       </View>
     );
   }, [dailyAttempts, handleAnimePress]);
+
+  // NEW: Tutorial content component
+  const renderTutorial = () => (
+    <Portal>
+      <Dialog visible={showTutorial} onDismiss={handleTutorialComplete}>
+        <Dialog.Title style={styles.tutorialTitle}>
+          <MaterialCommunityIcons name="school" size={24} color={theme.colors.primary} />
+          {"  "}Welcome to Anime Quiz!
+        </Dialog.Title>
+        <Dialog.Content>
+          <Text style={styles.tutorialText}>
+            Hey there! 👋 Here's how it works:
+          </Text>
+          
+          <Text style={styles.tutorialPoint}>
+            🎯 <Text style={styles.tutorialBold}>Daily Quizzes:</Text> Each anime category can only be played once per day for rankings. Get your best score!
+          </Text>
+          
+          <Text style={styles.tutorialPoint}>
+            🏆 <Text style={styles.tutorialBold}>Compete:</Text> Your scores count toward daily, monthly, and all-time rankings. Climb the leaderboards!
+          </Text>
+          
+          <Text style={styles.tutorialPoint}>
+            📚 <Text style={styles.tutorialBold}>Practice Mode:</Text> Want to replay old quizzes? No problem! Practice on past dates without affecting your rankings.
+          </Text>
+          
+          <Text style={styles.tutorialPoint}>
+            ⏰ <Text style={styles.tutorialBold}>Reset Time:</Text> New quizzes unlock every day at midnight UTC. Come back daily for fresh challenges!
+          </Text>
+          
+          <Text style={styles.tutorialFooter}>
+            Ready to test your anime knowledge? Let's go! 🚀
+          </Text>
+        </Dialog.Content>
+        <Dialog.Actions>
+          <Button 
+            mode="contained" 
+            onPress={handleTutorialComplete}
+            style={styles.tutorialButton}
+          >
+            Got it, let's play!
+          </Button>
+        </Dialog.Actions>
+      </Dialog>
+    </Portal>
+  );
 
   // OPTIMIZED: Better loading screen with consistent background
   if (loading && !refreshing) {
@@ -403,6 +489,9 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       >
         {successMessage}
       </Snackbar>
+
+      {/* NEW: Tutorial Dialog */}
+      {renderTutorial()}
     </View>
   );
 };
@@ -470,6 +559,42 @@ const styles = StyleSheet.create({
     opacity: 0.4,
     textAlign: 'center',
     marginTop: responsiveSpacing(8),
+  },
+
+  // NEW: Tutorial styles
+  tutorialTitle: {
+    fontSize: responsiveFontSize(20),
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: responsiveSpacing(8),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tutorialText: {
+    fontSize: responsiveFontSize(16),
+    marginBottom: responsiveSpacing(16),
+    textAlign: 'center',
+    lineHeight: responsiveFontSize(22),
+  },
+  tutorialPoint: {
+    fontSize: responsiveFontSize(15),
+    marginBottom: responsiveSpacing(12),
+    lineHeight: responsiveFontSize(21),
+  },
+  tutorialBold: {
+    fontWeight: '600',
+  },
+  tutorialFooter: {
+    fontSize: responsiveFontSize(15),
+    marginTop: responsiveSpacing(8),
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: responsiveFontSize(21),
+  },
+  tutorialButton: {
+    paddingHorizontal: responsiveSpacing(16),
+    paddingVertical: responsiveSpacing(4),
   },
 });
 
