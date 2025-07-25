@@ -10,12 +10,12 @@ export default {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "light",
+    userInterfaceStyle: "dark",
     newArchEnabled: true,
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#121212"
     },
     ios: {
       supportsTablet: true,
@@ -27,7 +27,10 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      googleServicesFile: "./google-services.json"
+      versionCode: 1, // Increment for each release
+      googleServicesFile: "./google-services.json",
+      permissions: ["INTERNET"] // Only permissions you need
+
     },
     web: {
       favicon: "./assets/favicon.png"
