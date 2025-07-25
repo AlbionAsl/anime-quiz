@@ -1,8 +1,11 @@
 - Fix rankings screen so that it doesn't look like there is space - DONE
-- Fix playscreen loading time - 
+- Fix playscreen loading time - DONE
 - Fix early leave - DONE
-- Fix like/dislikes
-- Fix CategoryScreen (show options per month)
-- Add info screen when first starting
+- Fix QuizScreen UI - DONE
+- Fix Rankings UI
+- Fix ProfileScreen UI
+- Fix like/dislikes (doesn't need fixing atm)
+- Fix CategoryScreen (show options per month) - DONE
+- Add info screen when first starting - DONE
 - Change name & image of app
 - 

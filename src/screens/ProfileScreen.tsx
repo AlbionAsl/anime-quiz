@@ -1,10 +1,9 @@
-// src/screens/ProfileScreen.tsx
+// src/screens/ProfileScreen.tsx - FIXED SAFE AREA VERSION
 
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
   StyleSheet, 
-  SafeAreaView, 
   ScrollView,
   RefreshControl 
 } from 'react-native';
@@ -20,6 +19,7 @@ import {
   ProgressBar
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, firestore } from '../utils/firebase';
 import { getMonthString } from '../utils/rankingUtils';
@@ -54,6 +54,7 @@ interface AnimeInfo {
 
 const ProfileScreen: React.FC = () => {
   const theme = useTheme();
+  const insets = useSafeAreaInsets(); // Add safe area insets
   const user = auth.currentUser;
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [animeMap, setAnimeMap] = useState<{ [key: string]: string }>({});
@@ -148,26 +149,19 @@ const ProfileScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
+        <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <ScrollView
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-          />
-        }
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Header Section */}
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* FIXED: Add safe area container */}
+      <View style={{ paddingTop: insets.top }}>
+        {/* Header Section with safe area */}
         <Surface style={styles.headerCard} elevation={2}>
           <Avatar.Text
             size={80}
@@ -180,7 +174,22 @@ const ProfileScreen: React.FC = () => {
             <MaterialCommunityIcons name="clock-outline" size={14} /> Member for {getMembershipDuration()}
           </Text>
         </Surface>
+      </View>
 
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+          />
+        }
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 20 } // Add bottom safe area
+        ]}
+      >
         {/* Quick Stats */}
         <View style={styles.statsGrid}>
           <Surface style={styles.statCard} elevation={1}>
@@ -284,7 +293,7 @@ const ProfileScreen: React.FC = () => {
           </Text>
         </Surface>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

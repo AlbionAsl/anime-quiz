@@ -381,6 +381,10 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
             ⏰ <Text style={styles.tutorialBold}>Reset Time:</Text> New quizzes unlock every day at midnight UTC. Come back daily for fresh challenges!
           </Text>
           
+          <Text style={[styles.tutorialPoint, styles.spoilerWarning]}>
+            ⚠️ <Text style={styles.tutorialBold}>Spoiler Warning:</Text> Questions may contain spoilers from the source material (manga). Only play if you're up to date!
+          </Text>
+          
           <Text style={styles.tutorialFooter}>
             Ready to test your anime knowledge? Let's go! 🚀
           </Text>
@@ -584,6 +588,13 @@ const styles = StyleSheet.create({
   },
   tutorialBold: {
     fontWeight: '600',
+  },
+  spoilerWarning: {
+    backgroundColor: 'rgba(255, 193, 7, 0.1)', // Light amber background
+    padding: responsiveSpacing(8),
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFC107', // Amber accent
   },
   tutorialFooter: {
     fontSize: responsiveFontSize(15),

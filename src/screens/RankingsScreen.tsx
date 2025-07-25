@@ -483,6 +483,12 @@ const RankingsScreen: React.FC = () => {
         )
       )}
 
+      {/* FIXED: Add consistent spacing when no user rank card */}
+      {(!userRank || !currentUser || 
+        (rankingType === 'averageScore' && !isAverageScoreAvailable())) && (
+        <View style={styles.headerSpacing} />
+      )}
+
       {/* Leaderboard Content */}
       {rankingsLoading ? (
         <View style={[styles.rankingsLoadingContainer, { backgroundColor: theme.colors.background }]}>
@@ -803,6 +809,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6C5CE7',
     textAlign: 'center',
+  },
+  headerSpacing: {
+  height: 16,
+  marginHorizontal: 16, 
+  marginBottom: 16,
   },
   footerText: {
     textAlign: 'center',
