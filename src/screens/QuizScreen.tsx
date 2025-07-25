@@ -32,6 +32,7 @@ import { firestore, auth } from '../utils/firebase';
 import { getDailyQuestions, getUTCDateString } from '../utils/quizUtils';
 import { updateRankings } from '../utils/rankingUtils';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type QuizScreenRouteProp = RouteProp<PlayStackParamList, 'Quiz'>;
 type QuizScreenNavigationProp = StackNavigationProp<PlayStackParamList, 'Quiz'>;
@@ -65,6 +66,7 @@ const QuizScreen: React.FC = () => {
   const route = useRoute<QuizScreenRouteProp>();
   const navigation = useNavigation<QuizScreenNavigationProp>();
   const { animeId, animeName, date, isPractice = false } = route.params;
+  const insets = useSafeAreaInsets(); // Add safe area insets
 
   // Existing state
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -665,7 +667,7 @@ const QuizScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
         <Text style={styles.loadingText}>Loading questions...</Text>
       </View>
@@ -674,7 +676,7 @@ const QuizScreen: React.FC = () => {
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
+      <View style={[styles.errorContainer, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <Text style={styles.errorText}>{error}</Text>
         <Button mode="contained" onPress={() => navigation.goBack()}>
           Go Back
@@ -742,7 +744,7 @@ const QuizScreen: React.FC = () => {
 
   if (submitting) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
         <Text style={styles.loadingText}>
           {quizAbandoned ? 'Processing abandoned quiz...' : 'Submitting quiz...'}
@@ -752,52 +754,55 @@ const QuizScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.header}>
-        {/* UPDATED: Only show back button for practice quizzes */}
-        {actualIsPractice ? (
-          <IconButton
-            icon="arrow-left"
-            size={24}
-            onPress={() => setShowExitDialog(true)}
-          />
-        ) : (
-          <View style={{ width: 48, height: 48 }} />
-        )}
-        
-        <View style={styles.headerCenter}>
-          <Text style={styles.questionCounter}>
-            Question {currentQuestionIndex + 1} of {questions.length}
-          </Text>
-          <Chip 
-            icon={getQuizModeIcon()}
-            style={[
-              styles.headerModeChip, 
-              { backgroundColor: actualIsPractice ? theme.colors.secondary : theme.colors.primary }
-            ]}
-            textStyle={styles.headerModeChipText}
-          >
-            {getQuizModeText()}
-          </Chip>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* FIXED: Add safe area padding to the header */}
+      <View style={{ paddingTop: insets.top }}>
+        <View style={styles.header}>
+          {/* Only show back button for practice quizzes */}
+          {actualIsPractice ? (
+            <IconButton
+              icon="arrow-left"
+              size={24}
+              onPress={() => setShowExitDialog(true)}
+            />
+          ) : (
+            <View style={{ width: 48, height: 48 }} />
+          )}
+          
+          <View style={styles.headerCenter}>
+            <Text style={styles.questionCounter}>
+              Question {currentQuestionIndex + 1} of {questions.length}
+            </Text>
+            <Chip 
+              icon={getQuizModeIcon()}
+              style={[
+                styles.headerModeChip, 
+                { backgroundColor: actualIsPractice ? theme.colors.secondary : theme.colors.primary }
+              ]}
+              textStyle={styles.headerModeChipText}
+            >
+              {getQuizModeText()}
+            </Chip>
+          </View>
+          <View style={{ width: 48 }} />
         </View>
-        <View style={{ width: 48 }} />
+
+        <ProgressBar progress={progress} color={theme.colors.primary} style={styles.mainProgressBar} />
+
+        {/* INFO: Info message for ranked quizzes */}
+        {!actualIsPractice && (
+          <Surface style={[styles.infoBanner, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
+            <MaterialCommunityIcons
+              name="information"
+              size={16}
+              color={theme.colors.primary}
+            />
+            <Text style={[styles.infoText, { color: theme.colors.primary }]}>
+              Ranked Quiz: You cannot exit once started!
+            </Text>
+          </Surface>
+        )}
       </View>
-
-      <ProgressBar progress={progress} color={theme.colors.primary} style={styles.mainProgressBar} />
-
-      {/* INFO: Info message for ranked quizzes */}
-      {!actualIsPractice && (
-        <Surface style={[styles.infoBanner, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
-          <MaterialCommunityIcons
-            name="information"
-            size={16}
-            color={theme.colors.primary}
-          />
-          <Text style={[styles.infoText, { color: theme.colors.primary }]}>
-            Ranked Quiz: You cannot exit once started!
-          </Text>
-        </Surface>
-      )}
 
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
@@ -870,8 +875,10 @@ const QuizScreen: React.FC = () => {
         {renderLikeDislikeButtons()}
       </ScrollView>
 
-      {/* Timer Bar - Always at bottom */}
-      {renderTimerBar()}
+      {/* Timer Bar - Always at bottom with safe area */}
+      <View style={{ paddingBottom: insets.bottom }}>
+        {renderTimerBar()}
+      </View>
 
       {/* UPDATED: Exit dialog only for practice quizzes */}
       <Portal>
@@ -889,7 +896,7 @@ const QuizScreen: React.FC = () => {
           </Dialog.Actions>
         </Dialog>
       </Portal>
-    </SafeAreaView>
+    </View>
   );
 };
 
