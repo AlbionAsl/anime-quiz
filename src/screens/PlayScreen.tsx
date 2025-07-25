@@ -85,15 +85,23 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
   // Memoize today's date to avoid recalculation
   const todayDate = useMemo(() => getUTCDateString(), []);
 
-  // Handle navigation params and refresh
+// Handle navigation params and refresh
   useFocusEffect(
     React.useCallback(() => {
+      console.log('📱 PlayScreen focused, checking for refresh params...');
+      
       if (route.params?.refresh) {
-        checkDailyAttempts();
-        if (route.params.completedCategory && route.params.score !== undefined) {
-          setSuccessMessage(`Quiz completed! Score: ${route.params.score}/${route.params.totalQuestions || 10}`);
-          setTimeout(() => setSuccessMessage(null), 3000);
-        }
+        console.log('🔄 Quiz completed, refreshing daily attempts only...');
+        
+        // Only refresh daily attempts, not the entire anime list (optimization!)
+        checkDailyAttempts().then(() => {
+          // Show success message if quiz was completed
+          if (route.params?.completedCategory && route.params?.score !== undefined) {
+            setSuccessMessage(`Quiz completed! Score: ${route.params.score}/${route.params.totalQuestions || 10}`);
+            setTimeout(() => setSuccessMessage(null), 3000);
+          }
+        });
+        
         // Clear params to prevent showing message again
         navigation.setParams({ 
           refresh: undefined, 
@@ -102,7 +110,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
           totalQuestions: undefined 
         } as any);
       }
-    }, [route.params, navigation])
+    }, [route.params, navigation]) // Removed checkDailyAttempts from dependencies
   );
 
   // Update timer every second

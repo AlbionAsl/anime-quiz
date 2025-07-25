@@ -133,17 +133,20 @@ const AppNavigator: React.FC = () => {
 
   useEffect(() => {
     let profileUnsubscribe: (() => void) | null = null;
+    let isComponentMounted = true; // Prevent state updates after unmount
 
     console.log('🔧 Setting up auth state listener...');
 
     const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      // Prevent updates if component unmounted
+      if (!isComponentMounted) return;
+      
       console.log('🔐 Auth state changed:', currentUser ? `User logged in (${currentUser.uid})` : 'User logged out');
       
       setAuthChecked(true); // Mark that we've checked auth at least once
       
       if (currentUser) {
         console.log('📧 Email verified:', currentUser.emailVerified);
-        console.log('💾 Auth persistence working: User found on app restart');
         
         // Only proceed if email is verified
         if (!currentUser.emailVerified) {
@@ -152,41 +155,57 @@ const AppNavigator: React.FC = () => {
           return;
         }
         
-        setUser(currentUser);
-        setProfileLoading(true);
-        
-        // Clean up previous profile listener
-        if (profileUnsubscribe) {
-          profileUnsubscribe();
-        }
-        
-        // Listen for real-time updates to user profile
-        const userDocRef = doc(firestore, 'users', currentUser.uid);
-        console.log('👤 Setting up profile listener for user:', currentUser.uid);
-        
-        profileUnsubscribe = onSnapshot(
-          userDocRef,
-          (docSnap) => {
-            const profileExists = docSnap.exists();
-            console.log('📄 Profile exists:', profileExists);
-            
-            if (profileExists) {
-              console.log('✅ User profile found, navigating to main app');
-            } else {
-              console.log('🆕 No profile found, showing user creation screen');
-            }
-            
-            setHasProfile(profileExists);
-            setProfileLoading(false);
-            setLoading(false);
-          },
-          (error) => {
-            console.error('❌ Error listening to user profile:', error);
-            setHasProfile(false);
-            setProfileLoading(false);
-            setLoading(false);
+        // FIXED: Only update user state if it's actually different
+        if (!user || user.uid !== currentUser.uid) {
+          setUser(currentUser);
+          setProfileLoading(true);
+          
+          // Clean up previous profile listener
+          if (profileUnsubscribe) {
+            profileUnsubscribe();
           }
-        );
+          
+          // Listen for real-time updates to user profile
+          const userDocRef = doc(firestore, 'users', currentUser.uid);
+          console.log('👤 Setting up profile listener for user:', currentUser.uid);
+          
+          profileUnsubscribe = onSnapshot(
+            userDocRef,
+            (docSnap) => {
+              // Prevent updates if component unmounted
+              if (!isComponentMounted) return;
+              
+              const profileExists = docSnap.exists();
+              console.log('📄 Profile exists:', profileExists);
+              
+              // FIXED: Only update if state actually changed
+              if (hasProfile !== profileExists) {
+                if (profileExists) {
+                  console.log('✅ User profile found, navigating to main app');
+                } else {
+                  console.log('🆕 No profile found, showing user creation screen');
+                }
+                
+                setHasProfile(profileExists);
+              }
+              
+              setProfileLoading(false);
+              setLoading(false);
+            },
+            (error) => {
+              if (!isComponentMounted) return;
+              
+              console.error('❌ Error listening to user profile:', error);
+              setHasProfile(false);
+              setProfileLoading(false);
+              setLoading(false);
+            }
+          );
+        } else {
+          // User is the same, just update loading states
+          setProfileLoading(false);
+          setLoading(false);
+        }
       } else {
         console.log('🚪 No user found, showing login screen');
         setUser(null);
@@ -204,12 +223,14 @@ const AppNavigator: React.FC = () => {
 
     return () => {
       console.log('🧹 Cleaning up auth listeners');
+      isComponentMounted = false; // Prevent further state updates
       authUnsubscribe();
       if (profileUnsubscribe) {
         profileUnsubscribe();
       }
     };
-  }, []);
+  }, []); // FIXED: Remove dependencies that cause re-renders
+
 
   // OPTIMIZED: Show loading only when actually needed and with consistent theme
   if (loading || !authChecked || (user && profileLoading)) {

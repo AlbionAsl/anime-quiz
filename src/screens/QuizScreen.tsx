@@ -259,8 +259,13 @@ const QuizScreen: React.FC = () => {
       
     } catch (error) {
       console.error('Error submitting abandoned quiz:', error);
-      // Even if submission fails, navigate away
-      navigation.goBack();
+      // Even if submission fails, navigate away with refresh
+      navigation.navigate('PlayHome', { 
+        refresh: true,
+        completedCategory: animeName,
+        score: 0,
+        totalQuestions: 10
+      });
     }
   };
 
@@ -454,8 +459,13 @@ const QuizScreen: React.FC = () => {
       }
 
       if (isAbandoned) {
-        // Navigate back immediately for abandoned quizzes
-        navigation.goBack();
+        // For abandoned quizzes, navigate back with refresh flag
+        navigation.navigate('PlayHome', { 
+          refresh: true,
+          completedCategory: animeName,
+          score: score,
+          totalQuestions: 10
+        });
       } else {
         // Show results for completed quizzes
         setShowResults(true);
@@ -464,8 +474,13 @@ const QuizScreen: React.FC = () => {
     } catch (error) {
       console.error('Error submitting quiz:', error);
       if (isAbandoned) {
-        // Even if there's an error, navigate back for abandoned quizzes
-        navigation.goBack();
+        // Even if there's an error, navigate back for abandoned quizzes with refresh
+        navigation.navigate('PlayHome', { 
+          refresh: true,
+          completedCategory: animeName,
+          score: 0,
+          totalQuestions: 10
+        });
       } else {
         setError('Failed to submit quiz. Please try again.');
       }
@@ -704,7 +719,13 @@ const QuizScreen: React.FC = () => {
             <Button
               mode="contained"
               onPress={() => {
-                navigation.goBack();
+                // Navigate back with refresh flag to update PlayScreen
+                navigation.navigate('PlayHome', { 
+                  refresh: true,
+                  completedCategory: animeName,
+                  score: score,
+                  totalQuestions: 10
+                });
               }}
               style={styles.finishButton}
             >
