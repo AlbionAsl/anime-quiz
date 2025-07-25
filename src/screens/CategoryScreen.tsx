@@ -1,4 +1,4 @@
-// src/screens/CategoryScreen.tsx - SAFE AREA & RESPONSIVE VERSION
+// src/screens/CategoryScreen.tsx - MONTHLY PAGINATION VERSION
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -50,18 +50,27 @@ interface QuizAttempt {
   totalQuestions: number;
 }
 
+// NEW: Month data structure
+interface MonthData {
+  monthKey: string; // "2025-01"
+  displayName: string; // "January 2025"
+  quizDates: QuizDate[];
+  totalQuizzes: number;
+  practiceCount: number;
+}
+
 type CategoryScreenProps = StackScreenProps<PlayStackParamList, 'Category'>;
 
 const { width } = Dimensions.get('window');
 const numColumns = 3;
-const buttonWidth = (width - 64) / numColumns; // Account for padding and gaps
+const buttonWidth = (width - 64) / numColumns;
 
 // Cache for quiz dates to avoid repeated fetches
 let quizDatesCache: {
   [category: string]: {
     dates: string[];
     timestamp: number;
-    ttl: number; // 2 minutes cache
+    ttl: number;
   };
 } = {};
 
@@ -70,23 +79,76 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
   const navigation = useNavigation<CategoryScreenNavigationProp>();
   const { animeId, animeName } = route.params;
   const insets = useSafeAreaInsets();
+  
+  // Existing state
   const [todayQuiz, setTodayQuiz] = useState<QuizDate | null>(null);
-  const [pastQuizzes, setPastQuizzes] = useState<QuizDate[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const category = animeId === null ? 'all' : animeId.toString();
-  
-  // Helper function to get UTC date string
+  // NEW: Monthly pagination state
+  const [availableMonths, setAvailableMonths] = useState<MonthData[]>([]);
+  const [selectedMonthIndex, setSelectedMonthIndex] = useState(0);
+  const [currentMonthData, setCurrentMonthData] = useState<MonthData | null>(null);
+
+    // Helper function to get UTC date string
   const getUTCDateString = (date: Date = new Date()): string => {
     const year = date.getUTCFullYear();
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
-  
+
+
+  const category = animeId === null ? 'all' : animeId.toString();
   const todayDate = getUTCDateString();
+
+
+  // NEW: Get month key from date string
+  const getMonthKey = (dateString: string): string => {
+    return dateString.substring(0, 7); // "2025-01-15" -> "2025-01"
+  };
+
+  // NEW: Format month display name
+  const formatMonthName = (monthKey: string): string => {
+    const [year, month] = monthKey.split('-');
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  // NEW: Group quiz dates by month
+  const groupQuizDatesByMonth = (quizDates: QuizDate[]): MonthData[] => {
+    const monthGroups: { [key: string]: QuizDate[] } = {};
+
+    // Group dates by month
+    quizDates.forEach(quiz => {
+      if (!quiz.isToday) { // Only group past quizzes
+        const monthKey = getMonthKey(quiz.date);
+        if (!monthGroups[monthKey]) {
+          monthGroups[monthKey] = [];
+        }
+        monthGroups[monthKey].push(quiz);
+      }
+    });
+
+    // Convert to MonthData array and sort by month (newest first)
+    const months = Object.keys(monthGroups)
+      .sort((a, b) => b.localeCompare(a)) // Sort descending (newest first)
+      .map(monthKey => {
+        const quizDates = monthGroups[monthKey].sort((a, b) => b.date.localeCompare(a.date));
+        const practiceCount = quizDates.filter(q => q.hasPracticed).length;
+        
+        return {
+          monthKey,
+          displayName: formatMonthName(monthKey),
+          quizDates,
+          totalQuizzes: quizDates.length,
+          practiceCount
+        };
+      });
+
+    return months;
+  };
 
   useFocusEffect(
     React.useCallback(() => {
@@ -94,7 +156,7 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
     }, [])
   );
 
-  // OPTIMIZED: Batch fetch all quiz dates and completion statuses
+  // ENHANCED: Fetch and organize quiz dates by month
   const fetchQuizDates = async () => {
     try {
       setLoading(true);
@@ -111,7 +173,6 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
       } else {
         console.log('🔄 Fetching fresh quiz dates from Firestore');
         
-        // Get available quiz dates for this category
         const dailyQuestionsQuery = query(
           collection(firestore, 'dailyQuestions'),
           where('category', '==', category),
@@ -121,24 +182,23 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         const questionsSnapshot = await getDocs(dailyQuestionsQuery);
         availableDates = questionsSnapshot.docs.map(doc => doc.data().date);
         
-        // Cache the dates
         quizDatesCache[category] = {
           dates: availableDates,
           timestamp: now,
-          ttl: 2 * 60 * 1000 // 2 minutes
+          ttl: 2 * 60 * 1000
         };
       }
 
-      // If no dates available, show empty state
       if (availableDates.length === 0) {
         setTodayQuiz(null);
-        setPastQuizzes([]);
+        setAvailableMonths([]);
+        setCurrentMonthData(null);
         setError(null);
         setLoading(false);
         return;
       }
 
-      // OPTIMIZATION: Batch fetch ALL user attempts for this category in ONE query
+      // Batch fetch user attempts
       const user = auth.currentUser;
       let userAttempts: Map<string, QuizAttempt[]> = new Map();
       
@@ -152,7 +212,6 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         
         const attemptsSnapshot = await getDocs(attemptsQuery);
         
-        // Group attempts by date
         attemptsSnapshot.forEach((doc) => {
           const data = doc.data();
           const dateAttempts = userAttempts.get(data.date) || [];
@@ -168,16 +227,14 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         console.log(`✅ Found attempts for ${userAttempts.size} different dates`);
       }
 
-      // OPTIMIZATION: Process all dates in parallel
-      const datePromises = availableDates.map(async (date) => {
+      // Process all dates
+      const allQuizDates = availableDates.map((date) => {
         const isToday = date === todayDate;
-        
-        // Get completion status from our batched data
         const attempts = userAttempts.get(date) || [];
         const rankedAttempt = attempts.find(a => !a.isPractice);
         const practiceAttempt = attempts.find(a => a.isPractice);
         
-        const quizDate: QuizDate = {
+        return {
           date,
           displayDate: formatDisplayDate(date),
           isToday,
@@ -188,22 +245,29 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
           practiceScore: practiceAttempt?.score,
           practiceTotalQuestions: practiceAttempt?.totalQuestions,
         };
-        
-        return quizDate;
       });
 
-      // Wait for all dates to be processed
-      const processedDates = await Promise.all(datePromises);
-      
-      // Separate today from past quizzes
-      const todayData = processedDates.find(d => d.isToday);
-      const pastData = processedDates.filter(d => !d.isToday);
+      // Separate today from past quizzes and group by month
+      const todayData = allQuizDates.find(d => d.isToday);
+      const pastQuizzes = allQuizDates.filter(d => !d.isToday);
       
       setTodayQuiz(todayData || null);
-      setPastQuizzes(pastData);
-      setError(null);
       
-      console.log('✅ Quiz dates loaded successfully');
+      // NEW: Group past quizzes by month
+      const monthData = groupQuizDatesByMonth(pastQuizzes);
+      setAvailableMonths(monthData);
+      
+      // Set current month to most recent month with quizzes
+      if (monthData.length > 0) {
+        setSelectedMonthIndex(0);
+        setCurrentMonthData(monthData[0]);
+      } else {
+        setCurrentMonthData(null);
+      }
+      
+      setError(null);
+      console.log(`✅ Quiz dates loaded: ${monthData.length} months available`);
+      
     } catch (error) {
       console.error('Error fetching quiz dates:', error);
       setError('Failed to load quiz dates. Please try again.');
@@ -224,26 +288,29 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
     } else if (dateString === getUTCDateString(yesterday)) {
       return 'Yesterday';
     } else {
-      // Return just the date part (DD/MM/YYYY)
       return date.toLocaleDateString('en-GB', { 
         day: '2-digit', 
-        month: '2-digit', 
-        year: 'numeric' 
+        month: '2-digit'
       });
     }
   };
 
   const handlePlayQuiz = (date: string, isPractice: boolean) => {
     const isToday = date === todayDate;
-    const quizDate = isToday ? todayQuiz : pastQuizzes.find(q => q.date === date);
+    let quizDate: QuizDate | undefined;
     
-    // For today's quiz, check if already played (only if not practice mode)
+    if (isToday) {
+      quizDate = todayQuiz || undefined;
+    } else {
+      quizDate = currentMonthData?.quizDates.find(q => q.date === date);
+    }
+    
+    // Validation logic
     if (isToday && !isPractice && quizDate?.hasPlayedRanked) {
       setError(`You already played today's quiz! Score: ${quizDate.rankedScore}/${quizDate.rankedTotalQuestions}`);
       return;
     }
     
-    // For practice mode, check if already practiced this date
     if (isPractice && quizDate?.hasPracticed) {
       setError(`You already practiced this quiz! Score: ${quizDate.practiceScore}/${quizDate.practiceTotalQuestions}`);
       return;
@@ -257,9 +324,25 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
     });
   };
 
+  // NEW: Navigate between months
+  const handlePreviousMonth = () => {
+    if (selectedMonthIndex < availableMonths.length - 1) {
+      const newIndex = selectedMonthIndex + 1;
+      setSelectedMonthIndex(newIndex);
+      setCurrentMonthData(availableMonths[newIndex]);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (selectedMonthIndex > 0) {
+      const newIndex = selectedMonthIndex - 1;
+      setSelectedMonthIndex(newIndex);
+      setCurrentMonthData(availableMonths[newIndex]);
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
-    // Clear cache to force fresh fetch
     delete quizDatesCache[category];
     await fetchQuizDates();
   };
@@ -288,6 +371,44 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
             : "Play Today's Quiz"
           }
         </Button>
+      </View>
+    );
+  };
+
+  // NEW: Month navigation header
+  const renderMonthNavigation = () => {
+    if (availableMonths.length === 0) return null;
+
+    return (
+      <View style={styles.monthNavigation}>
+        <IconButton
+          icon="chevron-left"
+          size={24}
+          onPress={handlePreviousMonth}
+          disabled={selectedMonthIndex >= availableMonths.length - 1}
+          style={[
+            styles.monthNavButton,
+            selectedMonthIndex >= availableMonths.length - 1 && styles.disabledNavButton
+          ]}
+        />
+        
+        <View style={styles.monthInfo}>
+          <Text style={styles.monthTitle}>{currentMonthData?.displayName}</Text>
+          <Text style={styles.monthStats}>
+            {currentMonthData?.totalQuizzes} quiz{currentMonthData?.totalQuizzes !== 1 ? 'zes' : ''} • {currentMonthData?.practiceCount} practiced
+          </Text>
+        </View>
+        
+        <IconButton
+          icon="chevron-right"
+          size={24}
+          onPress={handleNextMonth}
+          disabled={selectedMonthIndex <= 0}
+          style={[
+            styles.monthNavButton,
+            selectedMonthIndex <= 0 && styles.disabledNavButton
+          ]}
+        />
       </View>
     );
   };
@@ -355,7 +476,7 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         {renderTodaySection()}
 
         {/* Divider */}
-        {todayQuiz && pastQuizzes.length > 0 && (
+        {todayQuiz && availableMonths.length > 0 && (
           <View style={styles.dividerSection}>
             <Divider style={styles.divider} />
             <Text style={styles.dividerText}>Replay old games</Text>
@@ -363,13 +484,16 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
           </View>
         )}
 
-        {/* Past Quizzes Section */}
-        {pastQuizzes.length > 0 && (
+        {/* Month Navigation */}
+        {availableMonths.length > 0 && renderMonthNavigation()}
+
+        {/* Past Quizzes Grid for Selected Month */}
+        {currentMonthData && currentMonthData.quizDates.length > 0 && (
           <View style={styles.pastSection}>
             <Text style={styles.pastSectionSubtitle}>Choose a date</Text>
             
             <FlatList
-              data={pastQuizzes}
+              data={currentMonthData.quizDates}
               renderItem={renderPastQuizButton}
               keyExtractor={(item) => item.date}
               numColumns={numColumns}
@@ -391,7 +515,7 @@ const CategoryScreen: React.FC<CategoryScreenProps> = ({ route }) => {
         )}
 
         {/* Empty State */}
-        {!todayQuiz && pastQuizzes.length === 0 && (
+        {!todayQuiz && availableMonths.length === 0 && (
           <View style={styles.emptyContainer}>
             <MaterialCommunityIcons 
               name="calendar-question" 
@@ -499,6 +623,36 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
 
+  // NEW: Month Navigation Styles
+  monthNavigation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: responsiveSpacing(20),
+    paddingHorizontal: responsiveSpacing(8),
+  },
+  monthNavButton: {
+    margin: 0,
+  },
+  disabledNavButton: {
+    opacity: 0.3,
+  },
+  monthInfo: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  monthTitle: {
+    fontSize: responsiveFontSize(20),
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  monthStats: {
+    fontSize: responsiveFontSize(12),
+    opacity: 0.6,
+    textAlign: 'center',
+    marginTop: responsiveSpacing(4),
+  },
+
   // Past Quizzes Section Styles
   pastSection: {
     flex: 1,
@@ -527,7 +681,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: responsiveSpacing(8),
   },
   activeButton: {
-    backgroundColor: '#6C5CE7', // Primary color
+    backgroundColor: '#6C5CE7',
   },
   completedButton: {
     backgroundColor: 'transparent',
