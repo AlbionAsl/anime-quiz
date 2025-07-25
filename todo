@@ -2,10 +2,10 @@
 - Fix playscreen loading time - DONE
 - Fix early leave - DONE
 - Fix QuizScreen UI - DONE
-- Fix Rankings UI
-- Fix ProfileScreen UI
+- Fix Rankings UI - DONE
+- Fix ProfileScreen UI - DONE
 - Fix like/dislikes (doesn't need fixing atm)
 - Fix CategoryScreen (show options per month) - DONE
 - Add info screen when first starting - DONE
 - Change name & image of app
-- 
+- Optimize firebase read/write operations --> lower costs !!!
