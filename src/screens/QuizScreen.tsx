@@ -1,4 +1,4 @@
-// src/screens/QuizScreen.tsx - WITH 10-SECOND TIMER
+// src/screens/QuizScreen.tsx - RANKED QUIZ NO EXIT VERSION
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -9,6 +9,8 @@ import {
   Dimensions,
   BackHandler,
   Animated,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import {
   Text,
@@ -22,7 +24,7 @@ import {
   IconButton,
   Chip,
 } from 'react-native-paper';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { PlayStackParamList } from '../navigation/PlayNavigator';
 import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment, getDoc } from 'firebase/firestore';
@@ -85,9 +87,15 @@ const QuizScreen: React.FC = () => {
   const [hasVoted, setHasVoted] = useState(false);
   const [voteType, setVoteType] = useState<'like' | 'dislike' | null>(null);
   
+  // NEW: Auto-submit state for ranked quizzes
+  const [quizAbandoned, setQuizAbandoned] = useState(false);
+  
   // Timer refs
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const timerProgress = useRef(new Animated.Value(0)).current;
+  
+  // NEW: App state ref for tracking
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Determine if this is today's quiz
   const todayDate = getUTCDateString();
@@ -142,23 +150,119 @@ const QuizScreen: React.FC = () => {
     }
   }, [currentQuestionIndex, questions.length, showResults]);
 
+  // NEW: App State Monitoring for Ranked Quizzes
+  useEffect(() => {
+    if (actualIsPractice || showResults || quizAbandoned) {
+      // Don't monitor app state for practice quizzes or completed quizzes
+      return;
+    }
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      console.log('🔄 App state changed:', appStateRef.current, '->', nextAppState);
+      
+      // If app goes to background or inactive during ranked quiz
+      if (
+        appStateRef.current === 'active' && 
+        (nextAppState === 'background' || nextAppState === 'inactive')
+      ) {
+        console.log('❌ User left app during ranked quiz - auto-submitting with 0/10');
+        handleAbandonQuiz('App went to background');
+      }
+      
+      appStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    appStateRef.current = AppState.currentState;
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [actualIsPractice, showResults, quizAbandoned, answers.length, questions.length]);
+
+  // NEW: Navigation Prevention for Ranked Quizzes
+  useFocusEffect(
+    React.useCallback(() => {
+      if (actualIsPractice || showResults || quizAbandoned) {
+        // Don't prevent navigation for practice quizzes
+        return;
+      }
+
+      const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+        // Prevent default behavior of leaving the screen
+        e.preventDefault();
+        
+        console.log('❌ User tried to navigate away from ranked quiz - auto-submitting with 0/10');
+        handleAbandonQuiz('Navigation away from quiz');
+      });
+
+      return unsubscribe;
+    }, [navigation, actualIsPractice, showResults, quizAbandoned, answers.length, questions.length])
+  );
+
   // Main useEffect for fetching questions and handling back button
   useEffect(() => {
     fetchQuestions();
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!showResults) {
+      if (showResults) {
+        // Allow back navigation after quiz is complete
+        return false;
+      }
+      
+      if (actualIsPractice) {
+        // For practice quizzes, show exit dialog as before
         setShowExitDialog(true);
         return true;
+      } else {
+        // For ranked quizzes, prevent back navigation and auto-submit
+        console.log('❌ User pressed back button during ranked quiz - auto-submitting with 0/10');
+        handleAbandonQuiz('Hardware back button pressed');
+        return true;
       }
-      return false;
     });
 
     return () => {
       backHandler.remove();
       cleanupTimer();
     };
-  }, [showResults]);
+  }, [showResults, actualIsPractice, quizAbandoned]);
+
+  // NEW: Handle quiz abandonment for ranked quizzes
+  const handleAbandonQuiz = async (reason: string) => {
+    if (quizAbandoned || showResults || actualIsPractice || questions.length === 0) {
+      // Already handled, is practice quiz, or questions not loaded yet
+      return;
+    }
+
+    console.log(`🚨 Quiz abandoned: ${reason}`);
+    setQuizAbandoned(true);
+    cleanupTimer();
+
+    try {
+      // Create answers array with all remaining questions as incorrect
+      const abandonedAnswers: Answer[] = [...answers];
+      
+      // Fill in remaining questions as incorrect (always ensure we have 10 total)
+      const totalQuestions = 10; // Always 10 questions per quiz
+      for (let i = answers.length; i < totalQuestions; i++) {
+        // For questions beyond available questions array, create dummy incorrect answers
+        abandonedAnswers.push({
+          questionId: questions[i]?.id || `question_${i}`,
+          selectedOption: -1, // -1 indicates abandoned/no answer
+          isCorrect: false,
+        });
+      }
+
+      // Submit with score of existing correct answers
+      await submitQuiz(abandonedAnswers, true);
+      
+    } catch (error) {
+      console.error('Error submitting abandoned quiz:', error);
+      // Even if submission fails, navigate away
+      navigation.goBack();
+    }
+  };
 
   const resetTimer = () => {
     setTimeLeft(QUESTION_TIME_LIMIT);
@@ -304,7 +408,8 @@ const QuizScreen: React.FC = () => {
     }, FEEDBACK_DISPLAY_TIME);
   };
 
-  const submitQuiz = async (finalAnswers: Answer[]) => {
+  // UPDATED: Submit quiz function with abandon flag
+  const submitQuiz = async (finalAnswers: Answer[], isAbandoned: boolean = false) => {
     setSubmitting(true);
     cleanupTimer(); // Make sure timer is stopped
     
@@ -313,9 +418,12 @@ const QuizScreen: React.FC = () => {
       if (!user) throw new Error('User not authenticated');
 
       const score = finalAnswers.filter(a => a.isCorrect).length;
+      const totalQuestions = 10; // Always 10 questions per quiz
       
       const category = animeId === null ? 'all' : animeId.toString();
       const quizDate = date || todayDate;
+
+      console.log(`📊 Submitting quiz - Score: ${score}/${totalQuestions}, Abandoned: ${isAbandoned}`);
 
       // Save quiz attempt
       await addDoc(collection(firestore, 'dailyQuizzes'), {
@@ -324,10 +432,11 @@ const QuizScreen: React.FC = () => {
         category,
         animeName,
         score,
-        totalQuestions: questions.length,
+        totalQuestions: totalQuestions, // Always 10
         completedAt: new Date(),
         answers: finalAnswers,
         isPractice: actualIsPractice,
+        abandoned: isAbandoned, // Track if quiz was abandoned (only add field if true)
       });
 
       // Only update user statistics and rankings if it's not practice mode
@@ -341,19 +450,31 @@ const QuizScreen: React.FC = () => {
         });
 
         // Update rankings only for non-practice quizzes
-        await updateRankings(user.uid, category, score, questions.length);
+        await updateRankings(user.uid, category, score, totalQuestions);
       }
 
-      setShowResults(true);
+      if (isAbandoned) {
+        // Navigate back immediately for abandoned quizzes
+        navigation.goBack();
+      } else {
+        // Show results for completed quizzes
+        setShowResults(true);
+      }
       
     } catch (error) {
       console.error('Error submitting quiz:', error);
-      setError('Failed to submit quiz. Please try again.');
+      if (isAbandoned) {
+        // Even if there's an error, navigate back for abandoned quizzes
+        navigation.goBack();
+      } else {
+        setError('Failed to submit quiz. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
+  // UPDATED: Handle exit - only for practice quizzes
   const handleExit = () => {
     cleanupTimer();
     setShowExitDialog(false);
@@ -602,7 +723,9 @@ const QuizScreen: React.FC = () => {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Submitting quiz...</Text>
+        <Text style={styles.loadingText}>
+          {quizAbandoned ? 'Processing abandoned quiz...' : 'Submitting quiz...'}
+        </Text>
       </View>
     );
   }
@@ -610,11 +733,17 @@ const QuizScreen: React.FC = () => {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <IconButton
-          icon="arrow-left"
-          size={24}
-          onPress={() => setShowExitDialog(true)}
-        />
+        {/* UPDATED: Only show back button for practice quizzes */}
+        {actualIsPractice ? (
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={() => setShowExitDialog(true)}
+          />
+        ) : (
+          <View style={{ width: 48, height: 48 }} />
+        )}
+        
         <View style={styles.headerCenter}>
           <Text style={styles.questionCounter}>
             Question {currentQuestionIndex + 1} of {questions.length}
@@ -634,6 +763,20 @@ const QuizScreen: React.FC = () => {
       </View>
 
       <ProgressBar progress={progress} color={theme.colors.primary} style={styles.mainProgressBar} />
+
+      {/* INFO: Info message for ranked quizzes */}
+      {!actualIsPractice && (
+        <Surface style={[styles.infoBanner, { backgroundColor: theme.colors.primaryContainer }]} elevation={1}>
+          <MaterialCommunityIcons
+            name="information"
+            size={16}
+            color={theme.colors.primary}
+          />
+          <Text style={[styles.infoText, { color: theme.colors.primary }]}>
+            Ranked Quiz: You cannot exit once started!
+          </Text>
+        </Surface>
+      )}
 
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
@@ -709,9 +852,13 @@ const QuizScreen: React.FC = () => {
       {/* Timer Bar - Always at bottom */}
       {renderTimerBar()}
 
+      {/* UPDATED: Exit dialog only for practice quizzes */}
       <Portal>
-        <Dialog visible={showExitDialog} onDismiss={() => setShowExitDialog(false)}>
-          <Dialog.Title>Exit Quiz?</Dialog.Title>
+        <Dialog 
+          visible={showExitDialog && actualIsPractice} 
+          onDismiss={() => setShowExitDialog(false)}
+        >
+          <Dialog.Title>Exit Practice Quiz?</Dialog.Title>
           <Dialog.Content>
             <Text>Are you sure you want to exit? Your progress will be lost.</Text>
           </Dialog.Content>
@@ -778,6 +925,23 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 16,
     borderRadius: 3,
+  },
+  // INFO: Info banner styles
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  infoText: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   scrollContent: {
     flexGrow: 1,

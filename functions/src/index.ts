@@ -1,5 +1,4 @@
-// Cloud Function for midnight question generation
-// This would be deployed as a Firebase Cloud Function
+// functions/src/index.ts - UPDATED TO HANDLE ABANDONED QUIZZES
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onRequest } from 'firebase-functions/v2/https';
@@ -19,8 +18,8 @@ interface Question {
   animeId?: number;
   animeName?: string;
   random: number;
-  // Embedded usage tracking fields
-  lastUsed?: Date;
+  // Embedded usage tracking fields - use null instead of undefined for Firestore compatibility
+  lastUsed?: Date | null;
   timesUsed?: number;
   usedDates?: string[];
   categories?: string[];
@@ -40,6 +39,8 @@ interface AnimeWithQuestions {
   animeName: string;
   questionCount: number;
 }
+
+
 
 /**
  * Get the current UTC date in YYYY-MM-DD format
@@ -90,11 +91,6 @@ const getAnimeWithQuestions = async (): Promise<AnimeWithQuestions[]> => {
 
 /**
  * Get unused questions for a category
- */
-// functions/src/index.ts - Key fixes for handling the categories array
-
-/**
- * Get unused questions for a category
  * FIXED: Handle missing categories array gracefully
  */
 const getUnusedQuestions = async (
@@ -127,8 +123,8 @@ const getUnusedQuestions = async (
         animeId: data.animeId,
         animeName: data.animeName,
         random: data.random,
-        // Handle potentially missing fields
-        lastUsed: data.lastUsed ? (typeof data.lastUsed === 'string' ? new Date(data.lastUsed) : data.lastUsed.toDate()) : undefined,
+        // Handle potentially missing fields - convert null/undefined to null, not undefined
+        lastUsed: data.lastUsed ? (typeof data.lastUsed === 'string' ? new Date(data.lastUsed) : data.lastUsed.toDate()) : null,
         timesUsed: data.timesUsed || 0,
         usedDates: data.usedDates || [],
         categories: data.categories || [], // Default to empty array if missing
@@ -234,7 +230,8 @@ const getLeastRecentlyUsedQuestions = (
     if (!a.lastUsed && !b.lastUsed) return 0;
     if (!a.lastUsed) return -1;
     if (!b.lastUsed) return 1;
-    return a.lastUsed.getTime() - b.lastUsed.getTime();
+    // Both lastUsed values exist, compare them
+    return (a.lastUsed as Date).getTime() - (b.lastUsed as Date).getTime();
   });
 
   return sortedByUsage.slice(0, limit);
@@ -268,7 +265,6 @@ const selectQuestionsWithSeed = (questions: Question[], count: number, seed: num
   
   return shuffled.slice(0, count);
 };
-
 
 /**
  * Pre-generate questions for all categories for a specific date
@@ -397,6 +393,11 @@ const getQuestionUsageStats = async (): Promise<{
   usedQuestions: number;
   unusedQuestions: number;
   categoryStats: { [category: string]: { used: number; total: number } };
+  abandonedQuizStats?: {
+    totalAbandoned: number;
+    abandonedToday: number;
+    abandonedThisWeek: number;
+  };
 }> => {
   try {
     const questionsSnapshot = await db.collection('questions').get();
@@ -427,11 +428,36 @@ const getQuestionUsageStats = async (): Promise<{
 
     const unusedQuestions = totalQuestions - usedQuestions;
 
+    // Get abandoned quiz statistics for analytics
+    const today = getUTCDateString();
+    const weekAgo = new Date();
+    weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+    const weekAgoString = weekAgo.toISOString().split('T')[0];
+
+    const abandonedQuizzesTodaySnapshot = await db.collection('dailyQuizzes')
+      .where('date', '==', today)
+      .where('abandoned', '==', true)
+      .get();
+
+    const abandonedQuizzesWeekSnapshot = await db.collection('dailyQuizzes')
+      .where('date', '>=', weekAgoString)
+      .where('abandoned', '==', true)
+      .get();
+
+    const totalAbandonedSnapshot = await db.collection('dailyQuizzes')
+      .where('abandoned', '==', true)
+      .get();
+
     return {
       totalQuestions,
       usedQuestions,
       unusedQuestions,
-      categoryStats
+      categoryStats,
+      abandonedQuizStats: {
+        totalAbandoned: totalAbandonedSnapshot.size,
+        abandonedToday: abandonedQuizzesTodaySnapshot.size,
+        abandonedThisWeek: abandonedQuizzesWeekSnapshot.size
+      }
     };
   } catch (error) {
     console.error('Error getting question usage stats:', error);
@@ -439,7 +465,12 @@ const getQuestionUsageStats = async (): Promise<{
       totalQuestions: 0,
       usedQuestions: 0,
       unusedQuestions: 0,
-      categoryStats: {}
+      categoryStats: {},
+      abandonedQuizStats: {
+        totalAbandoned: 0,
+        abandonedToday: 0,
+        abandonedThisWeek: 0
+      }
     };
   }
 };
@@ -467,7 +498,7 @@ export const generateDailyQuestions = onSchedule(
       // Optional: Cleanup old questions (keep last 30 days)
       await cleanupOldQuestions(30);
       
-      // Optional: Log usage statistics
+      // Optional: Log usage statistics (including abandoned quiz stats)
       const stats = await getQuestionUsageStats();
       console.log('Question usage statistics:', stats);
       
