@@ -27,7 +27,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      versionCode: 1, // Increment for each release
+      versionCode: 2, // Increment for each release
       googleServicesFile: process.env.GOOGLE_SERVICES_CONFIG || "./google-services.json",
       permissions: ["INTERNET"], // Only permissions you need
       compileSdkVersion: 34,
