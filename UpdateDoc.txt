@@ -1,0 +1,21 @@
+# 1. Update versionCode in app.config.ts
+versionCode: 2, // Increment this
+
+
+# Remove from git tracking but keep the file locally
+git rm --cached google-services.json
+
+# Commit this change
+git add .
+git commit -m "Temporarily untrack google-services.json for EAS build"
+
+# Now EAS can access the file since it's not gitignored
+eas build --platform android --profile production
+
+# Add back to gitignore (if not already there)
+echo "google-services.json" >> .gitignore
+
+# Remove from tracking again and commit
+git rm --cached google-services.json
+git add .gitignore
+git commit -m "Re-secure google-services.json in gitignore"
