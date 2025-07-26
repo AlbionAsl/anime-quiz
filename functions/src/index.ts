@@ -363,7 +363,7 @@ const preGenerateQuestionsForDate = async (targetDate?: string): Promise<void> =
 /**
  * Cleanup old daily questions
  */
-const cleanupOldQuestions = async (daysToKeep: number = 30): Promise<void> => {
+const cleanupOldQuestions = async (daysToKeep: number = 1000): Promise<void> => {
   try {
     const cutoffDate = new Date();
     cutoffDate.setUTCDate(cutoffDate.getUTCDate() - daysToKeep);
@@ -496,7 +496,7 @@ export const generateDailyQuestions = onSchedule(
       console.log('Successfully generated daily questions');
       
       // Optional: Cleanup old questions (keep last 30 days)
-      await cleanupOldQuestions(30);
+      await cleanupOldQuestions(1000);
       
       // Optional: Log usage statistics (including abandoned quiz stats)
       const stats = await getQuestionUsageStats();
@@ -576,7 +576,7 @@ export const weeklyCleanup = onSchedule(
     
     try {
       // Cleanup old daily questions (keep 60 days)
-      await cleanupOldQuestions(60);
+      await cleanupOldQuestions(1000);
       
       // Optional: Cleanup old system logs
       const cutoffDate = new Date();

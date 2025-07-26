@@ -407,7 +407,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <Surface style={styles.header} elevation={2}>
-          <Text style={styles.title}>Anime Quiz</Text>
+          <Text style={styles.title}>Shonen Dojo Quiz</Text>
           <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
         </Surface>
         
