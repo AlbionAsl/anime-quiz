@@ -1,9 +1,9 @@
-// App.tsx - WITH COMPREHENSIVE ERROR HANDLING
+// App.tsx - PRODUCTION BUILD FIX WITH ERROR BOUNDARY
 
 import React, { useEffect, useState } from 'react';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, View, StyleSheet, Text, Alert } from 'react-native';
+import { Platform, View, StyleSheet, Alert, Text } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -13,71 +13,38 @@ import { preloadAnimeData } from './src/utils/animeCacheUtils';
 // Error Boundary Component
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; error: Error | null; errorInfo: any }
+  { hasError: boolean; error?: Error }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false };
   }
 
   static getDerivedStateFromError(error: Error) {
-    console.log('💥 Error Boundary caught error:', error);
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
-    console.error('💥 App crashed with error:', error);
-    console.error('💥 Error info:', errorInfo);
-    console.error('💥 Component stack:', errorInfo.componentStack);
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('🚨 App Error Boundary caught error:', error, errorInfo);
     
-    this.setState({
-      error,
-      errorInfo
-    });
-
-    // Log detailed error information
-    const errorDetails = {
-      message: error.message,
-      stack: error.stack,
-      componentStack: errorInfo.componentStack,
-      timestamp: new Date().toISOString(),
-      platform: Platform.OS,
-      version: Platform.Version
-    };
-
-    console.error('💥 Detailed error info:', JSON.stringify(errorDetails, null, 2));
-
-    // In production, you would send this to a crash reporting service
-    // like Sentry, Crashlytics, or Bugsnag
+    // In production, you might want to log this to a crash reporting service
+    // Example: Crashlytics.recordError(error);
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaProvider>
-          <PaperProvider theme={customDarkTheme}>
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorTitle}>Oops! Something went wrong</Text>
-              <Text style={styles.errorMessage}>
-                The app encountered an unexpected error. Please restart the app.
-              </Text>
-              
-              {__DEV__ && this.state.error && (
-                <View style={styles.errorDetails}>
-                  <Text style={styles.errorDetailsTitle}>Error Details (Debug):</Text>
-                  <Text style={styles.errorDetailsText}>
-                    {this.state.error.message}
-                  </Text>
-                  {this.state.error.stack && (
-                    <Text style={styles.errorStack}>
-                      {this.state.error.stack.substring(0, 1000)}...
-                    </Text>
-                  )}
-                </View>
-              )}
-            </View>
-          </PaperProvider>
-        </SafeAreaProvider>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Something went wrong</Text>
+          <Text style={styles.errorText}>
+            The app encountered an unexpected error. Please restart the app.
+          </Text>
+          {__DEV__ && (
+            <Text style={styles.errorDetails}>
+              {this.state.error?.message}
+            </Text>
+          )}
+        </View>
       );
     }
 
@@ -85,122 +52,71 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// Firebase Health Check Component
-const FirebaseHealthCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [firebaseError, setFirebaseError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const checkFirebase = async () => {
-      try {
-        console.log('🔍 Checking Firebase health...');
-        
-        // Dynamic import to catch Firebase initialization errors
-        const { checkFirebaseHealth, getFirebaseDebugInfo } = await import('./src/utils/firebase');
-        
-        const debugInfo = getFirebaseDebugInfo();
-        console.log('🔍 Firebase debug info:', debugInfo);
-        
-        const isHealthy = await checkFirebaseHealth();
-        
-        if (!isHealthy) {
-          throw new Error('Firebase health check failed');
-        }
-        
-        console.log('✅ Firebase is healthy');
-        setIsLoading(false);
-      } catch (error: any) {
-        console.error('❌ Firebase health check error:', error);
-        setFirebaseError(error.message);
-        setIsLoading(false);
-      }
-    };
-
-    checkFirebase();
-  }, []);
-
-  if (isLoading) {
-    return (
-      <SafeAreaProvider>
-        <PaperProvider theme={customDarkTheme}>
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Initializing app...</Text>
-          </View>
-        </PaperProvider>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (firebaseError) {
-    return (
-      <SafeAreaProvider>
-        <PaperProvider theme={customDarkTheme}>
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorTitle}>Configuration Error</Text>
-            <Text style={styles.errorMessage}>
-              The app could not connect to Firebase. Please check your internet connection and try again.
-            </Text>
-            
-            {__DEV__ && (
-              <View style={styles.errorDetails}>
-                <Text style={styles.errorDetailsTitle}>Debug Info:</Text>
-                <Text style={styles.errorDetailsText}>{firebaseError}</Text>
-              </View>
-            )}
-          </View>
-        </PaperProvider>
-      </SafeAreaProvider>
-    );
-  }
-
-  return <>{children}</>;
-};
-
 const App: React.FC = () => {
+  const [initError, setInitError] = useState<string | null>(null);
+
   useEffect(() => {
-    // Initialize app optimizations
+    // Initialize app with proper error handling
     const initializeApp = async () => {
       try {
         console.log('🚀 Starting app initialization...');
-        
+
         // Hide navigation bar on Android for immersive experience
         if (Platform.OS === 'android') {
           try {
+            // Set navigation bar to be translucent
             await NavigationBar.setBackgroundColorAsync('transparent');
             await NavigationBar.setButtonStyleAsync('light');
             console.log('✅ Android navigation bar configured');
           } catch (navError) {
-            console.warn('⚠️  Failed to configure navigation bar:', navError);
+            console.warn('⚠️  Navigation bar configuration failed:', navError);
+            // Don't fail the app for this
           }
         }
 
         // OPTIMIZATION: Preload anime data in background
         console.log('🚀 Starting background data preload...');
         preloadAnimeData().catch(error => {
-          console.warn('⚠️  Background preload failed:', error);
+          console.warn('⚠️  Background preload failed (non-critical):', error);
+          // Don't fail the app for this
         });
         
-        console.log('✅ App initialization completed');
+        console.log('✅ App initialization completed successfully');
+        
       } catch (error) {
-        console.warn('⚠️  App initialization warning:', error);
+        console.error('❌ Critical app initialization error:', error);
+        setInitError(error instanceof Error ? error.message : 'Unknown initialization error');
       }
     };
 
     initializeApp();
   }, []);
 
+  // Show initialization error if it occurred
+  if (initError) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorTitle}>Initialization Failed</Text>
+        <Text style={styles.errorText}>
+          Failed to initialize the app: {initError}
+        </Text>
+        <Text style={styles.errorText}>
+          Please check your internet connection and restart the app.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ErrorBoundary>
-      <FirebaseHealthCheck>
-        <SafeAreaProvider>
-          <PaperProvider theme={customDarkTheme}>
-            <View style={[styles.container, { backgroundColor: customDarkTheme.colors.background }]}>
-              <StatusBar style="light" backgroundColor="transparent" translucent />
-              <AppNavigator />
-            </View>
-          </PaperProvider>
-        </SafeAreaProvider>
-      </FirebaseHealthCheck>
+      <SafeAreaProvider>
+        <PaperProvider theme={customDarkTheme}>
+          <View style={[styles.container, { backgroundColor: customDarkTheme.colors.background }]}>
+            <StatusBar style="light" backgroundColor="transparent" translucent />
+            <AppNavigator />
+          </View>
+        </PaperProvider>
+      </SafeAreaProvider>
     </ErrorBoundary>
   );
 };
@@ -219,50 +135,23 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#FF6B6B',
+    color: '#FFFFFF',
     marginBottom: 16,
     textAlign: 'center',
   },
-  errorMessage: {
+  errorText: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: '#CCCCCC',
     textAlign: 'center',
-    marginBottom: 20,
     lineHeight: 24,
+    marginBottom: 12,
   },
   errorDetails: {
-    backgroundColor: '#1E1E1E',
-    padding: 16,
-    borderRadius: 8,
-    width: '100%',
-    maxHeight: 300,
-  },
-  errorDetailsTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FFA500',
-    marginBottom: 8,
-  },
-  errorDetailsText: {
     fontSize: 12,
-    color: '#CCCCCC',
+    color: '#FF6B6B',
+    textAlign: 'center',
+    marginTop: 20,
     fontFamily: 'monospace',
-    marginBottom: 8,
-  },
-  errorStack: {
-    fontSize: 10,
-    color: '#999999',
-    fontFamily: 'monospace',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#121212',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#FFFFFF',
   },
 });
 

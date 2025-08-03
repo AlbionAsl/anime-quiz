@@ -1,4 +1,4 @@
-// app.config.ts
+// app.config.ts - PRODUCTION BUILD FIX
 
 import 'dotenv/config';
 
@@ -6,7 +6,7 @@ export default {
   expo: {
     name: "SHODOJO",
     slug: "DAILYQUIZ",
-    scheme: "SHODOJO", // THIS IS CRITICAL FOR OAUTH!
+    scheme: "SHODOJO",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -27,12 +27,12 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      versionCode: 3, // Increment for each release
-      googleServicesFile: process.env.GOOGLE_SERVICES_CONFIG || "./google-services.json",
-      permissions: ["INTERNET"], // Only permissions you need
+      versionCode: 4, // Increment for new release
+      // Remove conditional googleServicesFile - use static path
+      googleServicesFile: "./google-services.json",
+      permissions: ["INTERNET"],
       compileSdkVersion: 34,
       targetSdkVersion: 34
-
     },
     web: {
       favicon: "./assets/favicon.png"
@@ -41,7 +41,7 @@ export default {
       "@react-native-google-signin/google-signin"
     ],
     extra: {
-      // Firebase Configuration
+      // Firebase Configuration - with fallbacks for production
       FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
       FIREBASE_AUTH_DOMAIN: process.env.FIREBASE_AUTH_DOMAIN,
       FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
