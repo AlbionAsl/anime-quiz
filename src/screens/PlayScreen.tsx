@@ -358,7 +358,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
       <Dialog visible={showTutorial} onDismiss={handleTutorialComplete}>
         <Dialog.Title style={styles.tutorialTitle}>
           <MaterialCommunityIcons name="school" size={24} color={theme.colors.primary} />
-          {"  "}Welcome to Anime Quiz!
+          {"  "}Welcome to Shodojo!
         </Dialog.Title>
         <Dialog.Content>
           <Text style={styles.tutorialText}>
@@ -407,7 +407,7 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
         <Surface style={styles.header} elevation={2}>
-          <Text style={styles.title}>Shonen Dojo Quiz</Text>
+          <Text style={styles.title}>Shodojo</Text>
           <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
         </Surface>
         
@@ -425,13 +425,8 @@ const PlayScreen: React.FC<PlayScreenProps> = ({ route }) => {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={{ paddingTop: insets.top }}>
         <Surface style={styles.header} elevation={2}>
-          <Text style={styles.title}>Anime Quiz</Text>
+          <Text style={styles.title}>Shodojo</Text>
           <Text style={styles.subtitle}>Choose an anime category to explore quizzes</Text>
-          {animeList.length > 1 && (
-            <Text style={styles.animeCount}>
-              {animeList.length - 1} anime available with questions
-            </Text>
-          )}
         </Surface>
 
         <DailyQuizStatus 

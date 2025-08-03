@@ -4,9 +4,9 @@ import 'dotenv/config';
 
 export default {
   expo: {
-    name: "Shonen Spark",
+    name: "SHODOJO",
     slug: "DAILYQUIZ",
-    scheme: "shonenspark", // THIS IS CRITICAL FOR OAUTH!
+    scheme: "SHODOJO", // THIS IS CRITICAL FOR OAUTH!
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -27,7 +27,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      versionCode: 2, // Increment for each release
+      versionCode: 3, // Increment for each release
       googleServicesFile: process.env.GOOGLE_SERVICES_CONFIG || "./google-services.json",
       permissions: ["INTERNET"], // Only permissions you need
       compileSdkVersion: 34,
