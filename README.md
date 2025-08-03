@@ -1,4 +1,4 @@
-# Shonen Dojo Quiz - Anime/Manga Quiz App 🎌
+# SHODOJO - Anime/Manga Quiz App 🎌
 
 A React Native mobile application that challenges users with daily anime trivia quizzes. Compete with other anime fans through daily, monthly, and all-time rankings while testing your knowledge across different anime series. Practice on past quizzes to improve your skills without affecting your rankings.
 
