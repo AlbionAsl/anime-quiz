@@ -1,6 +1,11 @@
-// app.config.ts - PRODUCTION BUILD FIX
+// app.config.ts - PRODUCTION BUILD COMPATIBLE
 
 import 'dotenv/config';
+
+// Helper to get environment variable with fallback
+const getEnvVar = (key: string, fallback?: string): string | undefined => {
+  return process.env[key] || process.env[`EXPO_PUBLIC_${key}`] || fallback;
+};
 
 export default {
   expo: {
@@ -27,8 +32,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      versionCode: 4, // Increment for new release
-      // Remove conditional googleServicesFile - use static path
+      versionCode: 5,
       googleServicesFile: "./google-services.json",
       permissions: ["INTERNET"],
       compileSdkVersion: 34,
@@ -41,18 +45,18 @@ export default {
       "@react-native-google-signin/google-signin"
     ],
     extra: {
-      // Firebase Configuration - with fallbacks for production
-      FIREBASE_API_KEY: process.env.FIREBASE_API_KEY,
-      FIREBASE_AUTH_DOMAIN: process.env.FIREBASE_AUTH_DOMAIN,
-      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
-      FIREBASE_STORAGE_BUCKET: process.env.FIREBASE_STORAGE_BUCKET,
-      FIREBASE_MESSAGING_SENDER_ID: process.env.FIREBASE_MESSAGING_SENDER_ID,
-      FIREBASE_APP_ID: process.env.FIREBASE_APP_ID,
-      FIREBASE_MEASUREMENT_ID: process.env.FIREBASE_MEASUREMENT_ID,
+      // Firebase Configuration - ensure all variables are available
+      FIREBASE_API_KEY: getEnvVar('FIREBASE_API_KEY') || "AIzaSyA5i7KjUdc2iHMIdLT1MHjwNe4OyJwxQ_0",
+      FIREBASE_AUTH_DOMAIN: getEnvVar('FIREBASE_AUTH_DOMAIN') || "animequiz-d1890.firebaseapp.com",
+      FIREBASE_PROJECT_ID: getEnvVar('FIREBASE_PROJECT_ID') || "animequiz-d1890",
+      FIREBASE_STORAGE_BUCKET: getEnvVar('FIREBASE_STORAGE_BUCKET') || "animequiz-d1890.appspot.com",
+      FIREBASE_MESSAGING_SENDER_ID: getEnvVar('FIREBASE_MESSAGING_SENDER_ID') || "108288016848",
+      FIREBASE_APP_ID: getEnvVar('FIREBASE_APP_ID') || "1:108288016848:android:6c3b36e4013177be3a39d5",
+      FIREBASE_MEASUREMENT_ID: getEnvVar('FIREBASE_MEASUREMENT_ID'),
       
       // Google OAuth Configuration
-      GOOGLE_ANDROID_CLIENT_ID: process.env.GOOGLE_ANDROID_CLIENT_ID,
-      GOOGLE_WEB_CLIENT_ID: process.env.GOOGLE_WEB_CLIENT_ID,
+      GOOGLE_ANDROID_CLIENT_ID: getEnvVar('GOOGLE_ANDROID_CLIENT_ID'),
+      GOOGLE_WEB_CLIENT_ID: getEnvVar('GOOGLE_WEB_CLIENT_ID'),
       
       // EAS Configuration
       eas: {

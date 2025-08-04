@@ -1,30 +1,37 @@
 {
   "cli": {
-    "version": ">= 12.5.3",
-    "appVersionSource": "remote"
+    "version": ">= 5.9.1"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal"
     },
-    
     "preview": {
-      "distribution": "internal"
-    },
-    "production": {
-      "autoIncrement": true
-    },
-      "development-apk": {
-      "extends": "development",
+      "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyA5i7KjUdc2iHMIdLT1MHjwNe4OyJwxQ_0",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "animequiz-d1890.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "animequiz-d1890",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "animequiz-d1890.appspot.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "108288016848",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:108288016848:android:6c3b36e4013177be3a39d5"
       }
     },
-    "production-apk": {
-      "extends": "production",
+    "production": {
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyA5i7KjUdc2iHMIdLT1MHjwNe4OyJwxQ_0",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "animequiz-d1890.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "animequiz-d1890",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "animequiz-d1890.appspot.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "108288016848",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:108288016848:android:6c3b36e4013177be3a39d5"
       }
     }
   },
