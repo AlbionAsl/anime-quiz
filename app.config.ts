@@ -32,7 +32,7 @@ export default {
         backgroundColor: "#ffffff"
       },
       package: "com.bluefiremonkey.DAILYQUIZ",
-      versionCode: 5,
+      versionCode: 6,
       googleServicesFile: "./google-services.json",
       permissions: ["INTERNET"],
       compileSdkVersion: 34,
