@@ -7,5 +7,9 @@
 - Fix like/dislikes (doesn't need fixing atm)
 - Fix CategoryScreen (show options per month) - DONE
 - Add info screen when first starting - DONE
-- Change name & image of app
+- Change name & image of app - DONE
+- Change UI so that it looks somewhat unique (manga inspired look)
+- Change the App Icon and the Name (maybe something with panels)
+- Change Loginscreen so that user stays logged in
+- Change 
 - Optimize firebase read/write operations --> lower costs !!!

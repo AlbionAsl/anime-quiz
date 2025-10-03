@@ -1,14 +1,18 @@
-// App.tsx - PRODUCTION BUILD FIX WITH ENHANCED ERROR HANDLING
+// App.tsx - FIXED FIREBASE IMPORT
 
 import React, { useEffect, useState } from 'react';
 import { Provider as PaperProvider } from 'react-native-paper';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, View, StyleSheet, Alert, Text, ScrollView } from 'react-native';
+import { Platform, View, StyleSheet, Text, ScrollView } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import customDarkTheme from './src/themes/theme';
 import { preloadAnimeData } from './src/utils/animeCacheUtils';
+
+// CRITICAL FIX: Import Firebase statically at the top level
+// This ensures it's initialized ONCE with persistence before anything else
+import { auth, firestore } from './src/utils/firebase';
 
 // Error Boundary Component with better error display
 class ErrorBoundary extends React.Component<
@@ -87,25 +91,6 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// Firebase initialization wrapper
-const initializeFirebase = async (): Promise<void> => {
-  try {
-    console.log('🔥 Initializing Firebase...');
-    
-    // Dynamic import to ensure proper module loading
-    const firebase = await import('./src/utils/firebase');
-    
-    if (!firebase.auth || !firebase.firestore) {
-      throw new Error('Firebase modules not properly initialized');
-    }
-    
-    console.log('✅ Firebase initialized successfully');
-  } catch (error) {
-    console.error('❌ Firebase initialization failed:', error);
-    throw error;
-  }
-};
-
 const App: React.FC = () => {
   const [initError, setInitError] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -118,8 +103,13 @@ const App: React.FC = () => {
         console.log('📱 Platform:', Platform.OS);
         console.log('🔧 Dev mode:', __DEV__);
 
-        // Initialize Firebase first
-        await initializeFirebase();
+        // CRITICAL: Firebase is already initialized by the static import above
+        // Just verify it's ready
+        if (!auth || !firestore) {
+          throw new Error('Firebase modules not properly initialized');
+        }
+        
+        console.log('✅ Firebase modules verified and ready');
 
         // Hide navigation bar on Android for immersive experience
         if (Platform.OS === 'android') {

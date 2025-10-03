@@ -1,20 +1,14 @@
-// src/utils/firebase.ts - PRODUCTION BUILD COMPATIBLE VERSION
+// src/utils/firebase.ts - CORRECT PERSISTENCE IMPLEMENTATION
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, initializeAuth } from 'firebase/auth';
+import { 
+  initializeAuth,
+  getReactNativePersistence,
+  Auth
+} from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-
-// CRITICAL FIX: Use static import with try-catch for production compatibility
-let getReactNativePersistence: any;
-try {
-  // This import must be at the top level and wrapped in try-catch
-  const authModule = require('firebase/auth/react-native');
-  getReactNativePersistence = authModule.getReactNativePersistence;
-} catch (error) {
-  console.warn('React Native persistence not available, using default auth');
-}
 
 // Firebase configuration with fallbacks for production
 const firebaseConfig = {
@@ -33,54 +27,70 @@ if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
   throw new Error('Missing critical Firebase configuration. Check environment variables.');
 }
 
+console.log('🔧 Initializing Firebase with config:', {
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain
+});
+
 // Initialize Firebase app (avoid duplicate initialization)
 let app;
-try {
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+if (getApps().length > 0) {
+  app = getApp();
+  console.log('✅ Using existing Firebase app');
+} else {
+  app = initializeApp(firebaseConfig);
   console.log('✅ Firebase app initialized successfully');
-} catch (error) {
-  console.error('❌ Firebase app initialization error:', error);
-  throw error;
 }
 
 // Initialize Firestore
-let firestore;
+const firestore = getFirestore(app);
+console.log('✅ Firestore initialized successfully');
+
+// Initialize Auth with AsyncStorage persistence
+// CRITICAL: We must ALWAYS initialize with persistence on first call
+// Never use getAuth() for initial setup - it creates auth without persistence!
+let auth: Auth;
+
 try {
-  firestore = getFirestore(app);
-  console.log('✅ Firestore initialized successfully');
-} catch (error) {
-  console.error('❌ Firestore initialization error:', error);
-  throw error;
+  console.log('🔐 Initializing Firebase Auth with AsyncStorage persistence...');
+  
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage)
+  });
+  
+  console.log('✅ Firebase Auth initialized with AsyncStorage persistence');
+  console.log('📱 User authentication state WILL persist across app restarts');
+  
+} catch (error: any) {
+  // If auth is already initialized, this error will occur
+  // In this case, we need to import getAuth to get the existing instance
+  if (error.code === 'auth/already-initialized') {
+    console.log('⚠️  Auth already initialized, retrieving existing instance...');
+    const { getAuth } = require('firebase/auth');
+    auth = getAuth(app);
+    console.log('✅ Retrieved existing Firebase Auth instance');
+    
+    // Check if persistence is set up correctly
+    console.log('📱 Auth persistence: Using existing configuration');
+  } else {
+    console.error('❌ Firebase Auth initialization error:', error);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    throw new Error(`Failed to initialize Firebase Auth: ${error.message}`);
+  }
 }
 
-// Initialize Auth with proper error handling
-let auth;
-try {
-  // Check if auth is already initialized
-  try {
-    auth = getAuth(app);
-    console.log('✅ Using existing Firebase Auth instance');
-  } catch (getAuthError) {
-    // Auth not initialized yet, initialize it now
-    if (getReactNativePersistence && AsyncStorage) {
-      try {
-        auth = initializeAuth(app, {
-          persistence: getReactNativePersistence(AsyncStorage)
-        });
-        console.log('✅ Firebase Auth initialized with AsyncStorage persistence');
-      } catch (persistenceError) {
-        console.warn('⚠️ Failed to initialize with persistence, using default:', persistenceError);
-        auth = initializeAuth(app);
-        console.log('✅ Firebase Auth initialized without persistence');
-      }
-    } else {
-      auth = initializeAuth(app);
-      console.log('✅ Firebase Auth initialized without persistence (module not available)');
-    }
+// Add auth state listener for debugging
+auth.onAuthStateChanged((user) => {
+  if (user) {
+    console.log('🔐 Auth state: User logged in', {
+      uid: user.uid,
+      email: user.email,
+      emailVerified: user.emailVerified
+    });
+  } else {
+    console.log('🔓 Auth state: No user logged in');
   }
-} catch (error) {
-  console.error('❌ Fatal Firebase Auth initialization error:', error);
-  throw error;
-}
+});
 
 export { firestore, auth };
